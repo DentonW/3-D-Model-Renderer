@@ -91,6 +91,41 @@ void updateTitle(App &a, const char *note = nullptr) {
   glfwSetWindowTitle(a.window, title.c_str());
 }
 
+// A unit's name, for the ones --units and the file formats deal in.
+std::string unitName(double metres) {
+  static const struct {
+    double metres;
+    const char *name;
+  } names[] = {{1000.0, "kilometres"}, {1.0, "metres"},      {0.01, "centimetres"},
+               {0.001, "millimetres"}, {0.0254, "inches"}, {0.3048, "feet"}};
+  for (const auto &n : names) {
+    if (std::fabs(metres - n.metres) <= n.metres * 1e-6) return n.name;
+  }
+  char buf[64];
+  std::snprintf(buf, sizeof(buf), "%.4g m", metres);
+  return buf;
+}
+
+// The three sides of the model's box in real units, in whichever of km, m,
+// cm or mm suits its longest side: "1.87 x 1.55 x 1.87 m", "24 x 3.2 x 2.9 cm".
+std::string realSize(Vec3 size, double unitMetres) {
+  const double x = size.x * unitMetres, y = size.y * unitMetres, z = size.z * unitMetres;
+  const double longest = std::max({x, y, z});
+  double scale = 0.001;
+  const char *name = "mm";
+  if (longest >= 1000.0) {
+    scale = 1000.0, name = "km";
+  } else if (longest >= 1.0) {
+    scale = 1.0, name = "m";
+  } else if (longest >= 0.01) {
+    scale = 0.01, name = "cm";
+  }
+  char buf[128];
+  std::snprintf(buf, sizeof(buf), "%.3g x %.3g x %.3g %s", x / scale, y / scale, z / scale,
+                name);
+  return buf;
+}
+
 void describe(const Model &model) {
   const ModelStats &s = model.stats();
   const Vec3 lo = model.boundsMin(), hi = model.boundsMax();
@@ -99,12 +134,17 @@ void describe(const Model &model) {
               withCommas(s.triangles).c_str(), withCommas(s.vertices).c_str(),
               withCommas(s.meshes).c_str(), withCommas(s.materials).c_str(),
               withCommas(s.textures).c_str());
-  // In the file's own units and coordinates, which is what says whether it
-  // was modelled in millimetres or metres, and where it was put.
-  const Vec3 size = hi - lo;
+  // The real size, which the grid shows too, and where it was put, in the
+  // file's own coordinates.
   const Vec3 centre = (lo + hi) * 0.5f + model.origin();
-  std::printf("  size %.4g x %.4g x %.4g, centred at (%.6g, %.6g, %.6g)\n", size.x, size.y,
-              size.z, centre.x, centre.y, centre.z);
+  const Vec3 rest = model.restSize(), reach = hi - lo;
+  std::printf("  size %s%s  (file units: %s, %s)\n",
+              realSize(rest, model.unitMetres()).c_str(), model.animated() ? " at rest" : "",
+              unitName(model.unitMetres()).c_str(), model.unitSource().c_str());
+  if (maxComponent(reach - rest) > 0.01f * maxComponent(rest)) {
+    std::printf("  moves within %s\n", realSize(reach, model.unitMetres()).c_str());
+  }
+  std::printf("  centred at (%.6g, %.6g, %.6g) in file units\n", centre.x, centre.y, centre.z);
   if (model.animated()) {
     const auto &clips = model.clips();
     std::printf("  animated: %s joints / %s morph targets / %s clips\n",

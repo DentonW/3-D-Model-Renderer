@@ -359,7 +359,9 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
       glUniform2f(groundU_.centre, (lo.x + hi.x) * 0.5f, (lo.z + hi.z) * 0.5f);
     }
     glUniform1f(groundU_.span, span);
-    glUniform1f(groundU_.cell, gridCell(lo, hi));
+    // A fixed size in metres, turned into the file's units: the grid is a
+    // ruler, so the model's real size shows against it.
+    glUniform1f(groundU_.cell, static_cast<float>(opts.gridSize / model.unitMetres()));
     glUniform1f(groundU_.gridStrength, opts.gridStrength);
     glUniform1f(groundU_.gridWidth, opts.gridWidth * static_cast<float>(ss));
     glUniform1i(groundU_.grid, opts.showGrid ? 1 : 0);

@@ -43,6 +43,9 @@ struct RenderOptions {
 
   int supersample = 2;         // offscreen scale; 2 means 2x2 samples per pixel
   float gridWidth = 1.0f;      // grid line width in window pixels
+  // Grid cell size in metres. Fixed, rather than fitted to the model, so the
+  // grid works as a ruler: it shows how big the model really is.
+  double gridSize = 0.1;
   bool cullBackfaces = true;   // off rescues models with inconsistent winding
   bool useTextures = true;
   bool useVertexColors = true; // off shows the material colour underneath
@@ -62,6 +65,10 @@ struct Options {
 
   bool zUp = false;             // rotate a Z-up model into this Y-up world
   std::string screenshot;       // render one frame to this PNG, then exit
+
+  // How long one of the file's units is, in metres. 0 means work it out from
+  // the file, where it says, or from its format's convention.
+  double unitMetres = 0.0;
 
   // Starting view in degrees, when given; the camera's own defaults otherwise.
   std::optional<float> yaw;

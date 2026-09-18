@@ -40,6 +40,28 @@ bool parseColor(const char *s, Vec3 &out) {
   return true;
 }
 
+// A length in metres: a number with an optional unit -- "1", "10cm",
+// "2.5 mm", "1ft" -- or a unit alone, meaning one of it. A plain number is
+// taken as metres.
+bool parseLength(const char *s, double &metres) {
+  char *end = nullptr;
+  double amount = std::strtod(s, &end);
+  if (end == s) amount = 1.0;  // "cm" on its own
+  while (*end == ' ') ++end;
+  static const struct {
+    const char *name;
+    double metres;
+  } units[] = {{"km", 1000.0}, {"m", 1.0},     {"cm", 0.01},    {"mm", 0.001},
+               {"in", 0.0254}, {"ft", 0.3048}, {"", 1.0}};
+  for (const auto &unit : units) {
+    if (std::strcmp(end, unit.name) == 0) {
+      metres = amount * unit.metres;
+      return metres > 0.0;
+    }
+  }
+  return false;
+}
+
 bool parseSize(const char *s, int &w, int &h) {
   char *end = nullptr;
   const long a = std::strtol(s, &end, 10);
@@ -77,7 +99,10 @@ void printUsage() {
       "  --wire-only        start with the wireframe alone\n"
       "  --no-ground        hide the ground plane and axis gnomon\n"
       "  --no-grid          keep the ground, drop the grid lines\n"
+      "  --grid-size LEN    grid cell size: 10cm, 1m, 1ft and so on (default 10cm)\n"
       "  --grid-width PX    grid line width in window pixels (default 1)\n"
+      "  --units U          what one unit in the file is: m, cm, mm, km, in, ft;\n"
+      "                     by default read from the file where it says\n"
       "  --no-cull          draw back faces too, for inconsistent winding\n"
       "  --no-textures      shade with material colours only\n"
       "  --albedo R,G,B     colour for models with no colour of their own\n"
@@ -141,6 +166,20 @@ bool parseArgs(int argc, char **argv, Options &out, std::string &error,
         return false;
       }
       out.pitch = pitch;
+    } else if (std::strcmp(a, "--grid-size") == 0) {
+      const char *v = needValue(i);
+      if (!v) return false;
+      if (!parseLength(v, out.render.gridSize)) {
+        error = std::string("--grid-size wants a length such as 10cm, 1m or 1ft, got ") + v;
+        return false;
+      }
+    } else if (std::strcmp(a, "--units") == 0) {
+      const char *v = needValue(i);
+      if (!v) return false;
+      if (!parseLength(v, out.unitMetres)) {
+        error = std::string("--units wants m, cm, mm, km, in, ft or a length, got ") + v;
+        return false;
+      }
     } else if (std::strcmp(a, "--grid-width") == 0) {
       const char *v = needValue(i);
       if (!v) return false;

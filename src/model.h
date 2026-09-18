@@ -106,10 +106,17 @@ class Model {
   // ground and the camera frame suit the whole animation.
   Vec3 boundsMin() const { return lo_; }
   Vec3 boundsMax() const { return hi_; }
+  // The model's own size: its rest pose for an animated one, whose bounds
+  // above also take in everywhere the animation carries it.
+  Vec3 restSize() const { return restSize_; }
   // Where the drawn coordinates' origin sits in the file's own: nonzero only
   // for a model far enough out that it was moved back near the origin to
   // keep its precision. File coordinates are drawn ones plus this.
   Vec3 origin() const { return origin_; }
+  // How long one of the file's units is, in metres, and how that was
+  // decided: declared by the file, fixed by its format, or assumed.
+  double unitMetres() const { return unitMetres_; }
+  const std::string &unitSource() const { return unitSource_; }
   const ModelStats &stats() const { return stats_; }
   const std::string &path() const { return path_; }
 
@@ -140,6 +147,9 @@ class Model {
   std::vector<GLuint> ownedTextures_;
   Vec3 lo_{0.0f, 0.0f, 0.0f}, hi_{0.0f, 0.0f, 0.0f};
   Vec3 origin_{0.0f, 0.0f, 0.0f};
+  Vec3 restSize_{0.0f, 0.0f, 0.0f};
+  double unitMetres_ = 1.0;
+  std::string unitSource_;
   ModelStats stats_;
   std::string path_;
 

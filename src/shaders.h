@@ -148,8 +148,13 @@ void main() {
         // the view is, and the one-pixel ramp at the edge antialiases them.
         vec2 fw = max(fwidth(vPos.xz), vec2(1e-30));
         vec2 px = abs(fract(vPos.xz / uCell + 0.5) - 0.5) * uCell / fw;
-        float line = clamp(0.5 * uGridWidth + 0.5 - min(px.x, px.y), 0.0, 1.0);
-        col += uGridCol * (line * uGridStrength);
+        // The cells are a fixed size, so under a large model or toward the
+        // horizon they shrink to a few pixels, where the lines would merge
+        // into moire and haze. Each set fades out as its lines crowd.
+        vec2 crowding = uGridWidth * fw / uCell;  // line width over spacing
+        vec2 keep = 1.0 - smoothstep(vec2(0.1), vec2(0.35), crowding);
+        vec2 lines = clamp(0.5 * uGridWidth + 0.5 - px, 0.0, 1.0) * keep;
+        col += uGridCol * (max(lines.x, lines.y) * uGridStrength);
     }
     float f = clamp(1.0 - d / max(uSpan * 14.0, 1e-30), 0.0, 1.0);
     f = f * f * (3.0 - 2.0 * f);

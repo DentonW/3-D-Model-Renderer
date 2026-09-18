@@ -121,21 +121,3 @@ inline Mat4 lookAt(Vec3 eyeF, Vec3 targetF, Vec3 upF) {
   out.at(2, 3) = static_cast<float>(fwd[0] * eye[0] + fwd[1] * eye[1] + fwd[2] * eye[2]);
   return out;
 }
-
-// Round to a 1/2/5 x 10^n step, for grid spacing that reads as a ruler.
-inline float niceStep(float x) {
-  if (!(x > 0.0f)) return 1.0f;
-  const float mag = std::pow(10.0f, std::floor(std::log10(x)));
-  for (float k : {1.0f, 2.0f, 5.0f}) {
-    if (x <= k * mag) return k * mag;
-  }
-  return 10.0f * mag;
-}
-
-// The ground grid's spacing for a model with these bounds: a 1/2/5 step of
-// about half its footprint, so it reads as a ruler in whatever units the
-// file uses.
-inline float gridCell(Vec3 lo, Vec3 hi) {
-  const float span = std::max(hi.x - lo.x, hi.z - lo.z);
-  return niceStep((span > 0.0f ? span : 1.0f) * 0.5f);
-}

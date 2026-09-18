@@ -17,8 +17,9 @@ model-renderer sponza.gltf
 The shaders and camera are line-for-line ports. With the same rock exported
 from Rock-Generator as glb, obj, fbx or ply, a frame from this program matches
 the Python viewport's to within a few pixels along the axis lines. The one
-deliberate difference is the grid, drawn a little heavier here
-(`--grid-width`).
+deliberate difference is the grid: here its cells are a fixed real size,
+10 cm by default, so the grid shows how big the model actually is. Its lines
+are also a little heavier (`--grid-size`, `--grid-width`).
 
 ## Building
 
@@ -90,7 +91,10 @@ model-renderer [options] [model-file]
   --wire-only        start with the wireframe alone
   --no-ground        hide the ground plane and axis gnomon
   --no-grid          keep the ground, drop the grid lines
+  --grid-size LEN    grid cell size: 10cm, 1m, 1ft and so on (default 10cm)
   --grid-width PX    grid line width in window pixels (default 1)
+  --units U          what one unit in the file is: m, cm, mm, km, in, ft;
+                     by default read from the file where it says
   --no-cull          draw back faces too, for inconsistent winding
   --no-textures      shade with material colours only
   --albedo R,G,B     colour for models with no colour of their own
@@ -152,9 +156,11 @@ Four programs, all in `src/shaders.h`, carried over from the Python:
 - **background** — a vertical gradient on one oversized triangle.
 - **ground** — a single upward-facing quad at the bottom of the model's
   bounding box, shaded analytically: a radial contact shadow under the model,
-  grid lines held at a constant width in window pixels (via `fwidth`) at any
-  angle, and a fade to the horizon colour. It is back-face culled, so it
-  disappears when the camera goes below it.
+  a grid of fixed-size cells with lines held at a constant width in window
+  pixels (via `fwidth`) at any angle, and a fade to the horizon colour. Where
+  the cells shrink to a few pixels (under a very large model, or toward the
+  horizon) the lines fade out rather than turning to moiré. The quad is
+  back-face culled, so it disappears when the camera goes below it.
 - **mesh** — key light, fill light, hemisphere ambient (sky above, bounce
   below) and a rim term. Flat shading takes the face normal from
   `dFdx`/`dFdy`, so it needs no second copy of the geometry. For animated
@@ -209,13 +215,24 @@ it costs a sort over every triangle corner.
   alpha channel are cut out at 0.5, so foliage and fences keep their shape.
 - **Orientation.** Y-up is assumed. `--z-up` rotates a Z-up file (much CAD,
   some Blender exports) into place.
-- **Units and scale.** Nothing assumes a unit. The camera frames the model's
-  bounding sphere, and everything that depends on size scales with the
-  model: the clipping planes, the zoom range, the grid spacing (a 1/2/5 step
-  of about half the footprint), the ground, the shadow and the axis lengths.
-  The same model at a billionth of the size or a billion times it renders
-  identically. The console prints the model's size in the file's own units,
-  which shows what those units were.
+- **Units and scale.** The grid is a ruler: its cells are a fixed real size
+  (`--grid-size`, 10 cm by default), so a model's size reads straight off it.
+  That needs the file's units, which are taken from the file where it gives
+  them: glTF is metres by definition, and FBX records its unit (usually
+  centimetres). Collada is converted to metres by assimp and Blender works in
+  metres. STL and 3MF are assumed to be millimetres, as 3-D printing files
+  usually are, and anything else metres; `--units` overrides all of this. The
+  console prints the size in real units and says where the unit came from.
+  For an animated model it gives the rest pose's size and, separately, the
+  space the animation moves through.
+- **Framing.** Everything else scales with the model: the camera frames its
+  bounding sphere, and the clipping planes, zoom range, ground, shadow and
+  axis lengths follow its size. The same model at a billionth of the size or
+  a billion times it is framed identically. What changes is the grid behind
+  it. With 10 cm cells, framing a model more than a few metres across makes
+  the cells too small to draw, and they fade out until you zoom in; a model
+  much under a centimetre sits inside a single cell. `--grid-size` suits the
+  grid to either: `--grid-size 1m` for buildings and vehicles, say.
 - **Far from the origin.** CAD, survey and scan data are often placed
   thousands of kilometres out, where a single-precision float can't tell
   apart points closer than half a unit. Node transforms are composed in

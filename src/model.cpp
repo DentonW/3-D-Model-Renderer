@@ -140,6 +140,7 @@ struct LoadContext {
   std::vector<GLuint> textures;  // every GL texture this load created
   Vec3 lo{0.0f, 0.0f, 0.0f}, hi{0.0f, 0.0f, 0.0f};
   bool boundsSet = false;
+  Vec3 restSize{0.0f, 0.0f, 0.0f};  // animated scenes: the box of the rest pose alone
   size_t meshCount = 0;
 
   // Static scenes: subtracted from every vertex before it is rounded to
@@ -155,14 +156,58 @@ struct LoadContext {
 using Mat4d = aiMatrix4x4t<double>;
 using Vec3d = aiVector3t<double>;
 
+// How long one of the file's units is, in metres, with a note of how that was
+// decided. Only some formats say: FBX records its unit (as centimetres per
+// unit), glTF is metres by definition, and assimp converts Collada to metres
+// itself. The rest leave it to convention, and a guess is labelled as one.
+double fileUnit(const aiScene *scene, const std::string &ext, double requested,
+                std::string &source) {
+  if (requested > 0.0) {
+    source = "given by --units";
+    return requested;
+  }
+  if (scene->mMetaData) {
+    // Assimp stores it as a float but has been known to expect a double.
+    float asFloat = 0.0f;
+    double asDouble = 0.0;
+    if (scene->mMetaData->Get("UnitScaleFactor", asFloat) && asFloat > 0.0f) {
+      source = "declared in the file";
+      return asFloat * 0.01;
+    }
+    if (scene->mMetaData->Get("UnitScaleFactor", asDouble) && asDouble > 0.0) {
+      source = "declared in the file";
+      return asDouble * 0.01;
+    }
+  }
+  if (ext == "gltf" || ext == "glb") {
+    source = "glTF is always in metres";
+    return 1.0;
+  }
+  if (ext == "dae") {
+    source = "converted to metres on import";
+    return 1.0;
+  }
+  if (ext == "blend") {
+    source = "Blender works in metres";
+    return 1.0;
+  }
+  if (ext == "stl" || ext == "3mf") {
+    source = "assumed, as usual for 3-D printing files; --units to change";
+    return 0.001;
+  }
+  source = "assumed, as the format doesn't say; --units to change";
+  return 1.0;
+}
+
 // How far to shift a model toward the origin before its vertices are rounded
 // to float. Survey, CAD and scan data are often placed thousands of km out;
 // at 5,000,000 a float cannot tell apart points closer than half a unit, and
 // the GPU's own sums lose as much again. A model within a hundred times its
 // own size of the origin is left exactly where it is. One further out moves
-// by the whole number of grid cells nearest its centre, so it lands near the
-// origin with the grid lines still where they were on it.
-Vec3d rebaseFor(const Vec3d &lo, const Vec3d &hi) {
+// by the whole number of grid cells (`cell`, in file units) nearest its
+// centre, so it lands near the origin with the grid lines still where they
+// were on it.
+Vec3d rebaseFor(const Vec3d &lo, const Vec3d &hi, double cell) {
   const Vec3d centre = (lo + hi) * 0.5;
   const Vec3d size = hi - lo;
   const double extent = std::max({size.x, size.y, size.z});
@@ -170,9 +215,6 @@ Vec3d rebaseFor(const Vec3d &lo, const Vec3d &hi) {
       std::max({std::fabs(centre.x), std::fabs(centre.y), std::fabs(centre.z)});
   if (!(extent > 0.0) || distance <= 100.0 * extent) return Vec3d(0.0, 0.0, 0.0);
 
-  const Vec3 loF(static_cast<float>(lo.x), 0.0f, static_cast<float>(lo.z));
-  const Vec3 hiF(static_cast<float>(hi.x), 0.0f, static_cast<float>(hi.z));
-  const double cell = gridCell(loF, hiF);
   auto snap = [cell](double c) { return std::round(c / cell) * cell; };
   return Vec3d(snap(centre.x), snap(centre.y), snap(centre.z));
 }
@@ -591,6 +633,7 @@ void animatedBounds(const Rig &rig, LoadContext &ctx) {
   };
 
   pool(-1, 0.0);
+  ctx.restSize = ctx.hi - ctx.lo;
   const std::vector<Rig::Clip> &clips = rig.clips();
   if (clips.empty()) return;
   const int samples = std::max(4, std::min(32, 128 / static_cast<int>(clips.size())));
@@ -656,6 +699,9 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   ctx.dir = directoryOf(path);
   const std::string ext = extensionOf(path);
   ctx.linearColors = ext == "gltf" || ext == "glb";
+  std::string unitSource;
+  const double unitMetres = fileUnit(scene, ext, opts.unitMetres, unitSource);
+  const double cell = opts.render.gridSize / unitMetres;  // grid cell, in file units
   readMaterials(ctx);
 
   size_t vertexGuess = 0, indexGuess = 0;
@@ -684,7 +730,7 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
     Vec3d lo, hi;
     bool any = false;
     worldBounds(scene->mRootNode, Mat4d(root), scene, lo, hi, any);
-    if (any) ctx.rebase = rebaseFor(lo, hi);
+    if (any) ctx.rebase = rebaseFor(lo, hi, cell);
     walk(scene->mRootNode, Mat4d(root), ctx);
   }
 
@@ -699,7 +745,8 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
     animatedBounds(rig, ctx);
     // An animated model far from the origin moves through the rig's root
     // instead; its vertices stay in their meshes' own spaces.
-    ctx.rebase = rebaseFor(Vec3d(ctx.lo.x, ctx.lo.y, ctx.lo.z), Vec3d(ctx.hi.x, ctx.hi.y, ctx.hi.z));
+    ctx.rebase = rebaseFor(Vec3d(ctx.lo.x, ctx.lo.y, ctx.lo.z),
+                           Vec3d(ctx.hi.x, ctx.hi.y, ctx.hi.z), cell);
     const Vec3 shift(static_cast<float>(ctx.rebase.x), static_cast<float>(ctx.rebase.y),
                      static_cast<float>(ctx.rebase.z));
     if (shift.x != 0.0f || shift.y != 0.0f || shift.z != 0.0f) {
@@ -721,8 +768,11 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   ownedTextures_ = std::move(ctx.textures);
   lo_ = ctx.lo;
   hi_ = ctx.hi;
+  restSize_ = animated ? ctx.restSize : ctx.hi - ctx.lo;
   origin_ = Vec3(static_cast<float>(ctx.rebase.x), static_cast<float>(ctx.rebase.y),
                  static_cast<float>(ctx.rebase.z));
+  unitMetres_ = unitMetres;
+  unitSource_ = unitSource;
   path_ = path;
 
   stats_ = ModelStats{};
@@ -931,7 +981,9 @@ void Model::release() {
   draws_.clear();
   materials_.clear();
   ownedTextures_.clear();
-  lo_ = hi_ = origin_ = Vec3{0.0f, 0.0f, 0.0f};
+  lo_ = hi_ = origin_ = restSize_ = Vec3{0.0f, 0.0f, 0.0f};
+  unitMetres_ = 1.0;
+  unitSource_.clear();
   stats_ = ModelStats{};
   path_.clear();
 }

@@ -86,6 +86,9 @@ void printUsage() {
       "  --crease DEG       smoothing limit for meshes that arrive without\n"
       "                     normals (default 60)\n"
       "  --z-up             rotate a Z-up model into this Y-up world\n"
+      "  --anim N           animated models: start on clip N, counting from 1;\n"
+      "                     0 shows the rest pose (default 1)\n"
+      "  --time SEC         animated models: start SEC seconds into the clip\n"
       "  --screenshot FILE  render one frame to a PNG and exit\n"
       "  --help             this text\n"
       "\n"
@@ -93,6 +96,7 @@ void printUsage() {
       "  left-drag orbit | right-drag pan | wheel zoom | double-click frame\n"
       "  F frame   W wireframe (over surface / alone / off)   S flat shading\n"
       "  G grid   B ground   T textures   V vertex colours   C back-face culling\n"
+      "  Space play/pause   [ ] previous/next animation\n"
       "  P screenshot   R reload   Esc quit\n");
 }
 
@@ -145,6 +149,22 @@ bool parseArgs(int argc, char **argv, Options &out, std::string &error,
         error = std::string("--grid-width wants pixels in (0, 8], got ") + v;
         return false;
       }
+    } else if (std::strcmp(a, "--anim") == 0) {
+      const char *v = needValue(i);
+      if (!v) return false;
+      if (!parseInt(v, out.anim) || out.anim < 0) {
+        error = std::string("--anim wants a clip number from 1, or 0, got ") + v;
+        return false;
+      }
+    } else if (std::strcmp(a, "--time") == 0) {
+      const char *v = needValue(i);
+      if (!v) return false;
+      float seconds = 0.0f;
+      if (!parseFloat(v, seconds) || seconds < 0.0f) {
+        error = std::string("--time wants seconds, 0 or more, got ") + v;
+        return false;
+      }
+      out.startTime = seconds;
     } else if (std::strcmp(a, "--no-ground") == 0) {
       out.render.showGround = false;
     } else if (std::strcmp(a, "--no-grid") == 0) {

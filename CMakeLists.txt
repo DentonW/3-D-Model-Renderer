@@ -67,6 +67,7 @@ add_executable(model-renderer
   src/main.cpp
   src/renderer.cpp
   src/model.cpp
+  src/animation.cpp
   src/camera.cpp
   src/options.cpp
   src/gl33.c

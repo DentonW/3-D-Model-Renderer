@@ -5,7 +5,8 @@ renderer draws it with the shading from
 [Rock-Generator](https://github.com/DentonW/Rock-Generator) — the same
 three-point light rig, the same ground plane and grid, the same supersampled
 offscreen buffer. That renderer was a tkinter widget in Python; this is the
-same picture with any model assimp can open in front of it.
+same picture with any model assimp can open in front of it, animated ones
+included.
 
 ```
 model-renderer sponza.gltf
@@ -65,6 +66,8 @@ avoids glad's and gl3w's Python-at-configure-time requirement.
 | `T` | textures |
 | `V` | vertex colours (off shows the material colour) |
 | `C` | back-face culling |
+| `Space` | play / pause the animation |
+| `[` `]` | previous / next animation clip, with the rest pose as one stop on the way round |
 | `P` | screenshot into the working directory |
 | `R` | reload the file from disk |
 | `Esc` | quit |
@@ -94,16 +97,53 @@ model-renderer [options] [model-file]
   --exposure X       overall brightness multiplier
   --crease DEG       smoothing limit for meshes that arrive without normals
   --z-up             rotate a Z-up model into this Y-up world
+  --anim N           animated models: start on clip N, counting from 1;
+                     0 shows the rest pose (default 1)
+  --time SEC         animated models: start SEC seconds into the clip
   --screenshot FILE  render one frame to a PNG and exit
 ```
 
-`--screenshot` opens no visible window, which makes it usable for turntables
-and for checking a model from a script:
+`--screenshot` opens no visible window, which makes it usable for turntables,
+animation frames and checking a model from a script:
 
 ```bash
 model-renderer --size 1600x1200 --ss 3 --screenshot rock.png rock.obj
 model-renderer --yaw 90 --pitch -30 --screenshot underside.png rock.obj
+model-renderer --anim 2 --time 0.5 --screenshot stride.png character.glb
 ```
+
+## Animation
+
+An animated model starts playing its first clip as soon as it loads, and
+loops. The console lists the clips with their lengths; `[` and `]` move
+between them and `Space` pauses. All three kinds of animation assimp
+delivers are played:
+
+- **Skeletal (skinned)** — characters and creatures, each vertex following
+  up to four bones.
+- **Node animation** — rigid parts moving on their own: wheels, doors, a
+  whole object travelling.
+- **Morph targets** (blend shapes) — faces, and anything else that deforms
+  without bones.
+
+A static scene is baked at load, as before. An animated one keeps each mesh
+in its own space, and every vertex gets up to four joints and weights in a
+second vertex buffer. Each frame, the clip's keyframes are sampled (linear
+for position and scale, slerp for rotation), the node hierarchy is walked to
+world transforms, and one matrix per joint goes to the GPU in a buffer
+texture for the vertex shader to blend. Rigid parts take the same path as a
+single joint at full weight. Morph targets are blended on the CPU, ahead of
+skinning, and written into their stretch of the vertex buffer. The wireframe
+follows the pose.
+
+The ground sits at the lowest point any vertex reaches in the rest pose or
+anywhere in any clip, and the camera frames the whole range of motion, so
+nothing sinks into the floor or leaves the frame mid-animation. The contact
+shadow follows the model as it moves. Frames are only drawn continuously
+while something is playing; paused or static, the viewport costs nothing.
+
+Not played: assimp's per-vertex keyframe animation, which only a few old game
+formats use. A skinned mesh is taken to be unmirrored in its rest pose.
 
 ## How it draws
 
@@ -117,7 +157,8 @@ Four programs, all in `src/shaders.h`, carried over from the Python:
   disappears when the camera goes below it.
 - **mesh** — key light, fill light, hemisphere ambient (sky above, bounce
   below) and a rim term. Flat shading takes the face normal from
-  `dFdx`/`dFdy`, so it needs no second copy of the geometry.
+  `dFdx`/`dFdy`, so it needs no second copy of the geometry. For animated
+  models its vertex shader also does the skinning.
 - **line** — the wireframe (dark over the surface, light on its own) and the
   axis gnomon.
 
@@ -125,12 +166,13 @@ Everything is drawn into an offscreen buffer at 2x the window resolution with
 a 24-bit depth buffer and blitted down, which antialiases the silhouettes and
 keeps flat faces out of z-fighting.
 
-The scene assimp returns is flattened at load: node transforms are baked into
-the vertices (normals through the cofactor matrix, with winding and normals
-both corrected where a transform mirrors), and the result goes into one vertex
-buffer and one index buffer drawn as a list of ranges, one per mesh. The wireframe's unique-edge
-buffer is built the first time the overlay is switched on, since it costs a
-sort over every triangle corner.
+The scene assimp returns is flattened at load into one vertex buffer and one
+index buffer, drawn as a list of ranges, one per mesh. For a static scene the
+node transforms are baked into the vertices (normals through the cofactor
+matrix, with winding and normals both corrected where a transform mirrors);
+an animated one is posed each frame instead, as above. The wireframe's
+unique-edge buffer is built the first time the overlay is switched on, since
+it costs a sort over every triangle corner.
 
 ## Notes on models
 

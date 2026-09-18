@@ -1,8 +1,8 @@
 // The four programs, carried over from rockgen.glview unchanged except where
 // a general model loader needs more than a single vertex-coloured mesh did:
 // the mesh shader gained a material colour for meshes without vertex
-// colours, a diffuse texture and an alpha cut-off. The lighting itself is
-// untouched.
+// colours, a diffuse texture and an alpha cut-off, and the mesh and line
+// shaders can pose animated models. The lighting itself is untouched.
 #pragma once
 
 namespace shaders {
@@ -27,6 +27,41 @@ vec3 shade(vec3 pos, vec3 n, vec3 albedo) {
 }
 )GLSL";
 
+// Posing for animated models, shared by the mesh and line vertex shaders.
+// Static models leave uAnimated off and their vertices pass through as they
+// were baked.
+inline constexpr const char *kSkin = R"GLSL(
+layout(location = 4) in uvec4 aJoints;
+layout(location = 5) in vec4 aWeights;
+uniform bool uAnimated;
+uniform samplerBuffer uJoints;  // three rows of an affine matrix per joint
+
+// Moves a vertex from its mesh's own space into the world, blending up to
+// four joints. Parts that move rigidly come through here too, as one joint
+// at full weight.
+void pose(inout vec3 pos, inout vec3 nrm) {
+    if (!uAnimated) return;
+    vec4 r0 = vec4(0.0), r1 = vec4(0.0), r2 = vec4(0.0);
+    for (int i = 0; i < 4; ++i) {
+        float w = aWeights[i];
+        if (w <= 0.0) continue;
+        int j = int(aJoints[i]) * 3;
+        r0 += w * texelFetch(uJoints, j);
+        r1 += w * texelFetch(uJoints, j + 1);
+        r2 += w * texelFetch(uJoints, j + 2);
+    }
+    vec4 p = vec4(pos, 1.0);
+    pos = vec3(dot(r0, p), dot(r1, p), dot(r2, p));
+    // Normals through the cofactor matrix with the determinant's sign put
+    // back, as the loader does for static models.
+    vec3 c0 = cross(r1.xyz, r2.xyz);
+    vec3 c1 = cross(r2.xyz, r0.xyz);
+    vec3 c2 = cross(r0.xyz, r1.xyz);
+    float s = dot(r0.xyz, c0) < 0.0 ? -1.0 : 1.0;
+    nrm = vec3(dot(c0, nrm), dot(c1, nrm), dot(c2, nrm)) * s;
+}
+)GLSL";
+
 inline constexpr const char *kMeshVS = R"GLSL(
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNrm;
@@ -38,11 +73,13 @@ out vec3 vNrm;
 out vec3 vCol;
 out vec2 vUV;
 void main() {
-    vPos = aPos;
-    vNrm = aNrm;
+    vec3 pos = aPos, nrm = aNrm;
+    pose(pos, nrm);
+    vPos = pos;
+    vNrm = nrm;
     vCol = aCol;
     vUV = aUV;
-    gl_Position = uMVP * vec4(aPos, 1.0);
+    gl_Position = uMVP * vec4(pos, 1.0);
 }
 )GLSL";
 
@@ -125,8 +162,10 @@ layout(location = 1) in vec3 aCol;
 uniform mat4 uMVP;
 out vec3 vCol;
 void main() {
+    vec3 pos = aPos, nrm = vec3(0.0);
+    pose(pos, nrm);  // so a wireframe follows an animated model
     vCol = aCol;
-    gl_Position = uMVP * vec4(aPos, 1.0);
+    gl_Position = uMVP * vec4(pos, 1.0);
 }
 )GLSL";
 

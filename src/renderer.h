@@ -47,7 +47,7 @@ class Renderer {
 
   struct MeshUniforms {
     GLint mvp = -1, flat = -1, hasTex = -1, twoSided = -1, tex = -1;
-    GLint vertexColor = -1, baseColor = -1, alphaCutoff = -1;
+    GLint vertexColor = -1, baseColor = -1, alphaCutoff = -1, animated = -1;
     GLint eye = -1, keyDir = -1, keyCol = -1, fillDir = -1, fillCol = -1;
     GLint sky = -1, bounce = -1, rim = -1, exposure = -1;
   } meshU_;
@@ -58,7 +58,7 @@ class Renderer {
     GLint grid = -1;
   } groundU_;
 
-  GLint lineMvp_ = -1;
+  GLint lineMvp_ = -1, lineAnimated_ = -1;
   GLint bgTop_ = -1, bgBottom_ = -1;
 
   GLuint groundVao_ = 0, groundVbo_ = 0;

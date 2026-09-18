@@ -49,6 +49,7 @@ typedef ptrdiff_t GLsizeiptr;
 
 /* types */
 #define GL_UNSIGNED_BYTE 0x1401
+#define GL_UNSIGNED_SHORT 0x1403
 #define GL_UNSIGNED_INT 0x1405
 #define GL_FLOAT 0x1406
 
@@ -74,6 +75,8 @@ typedef ptrdiff_t GLsizeiptr;
 /* buffers */
 #define GL_ARRAY_BUFFER 0x8892
 #define GL_ELEMENT_ARRAY_BUFFER 0x8893
+#define GL_TEXTURE_BUFFER 0x8C2A
+#define GL_STREAM_DRAW 0x88E0
 #define GL_STATIC_DRAW 0x88E4
 #define GL_DYNAMIC_DRAW 0x88E8
 
@@ -87,9 +90,11 @@ typedef ptrdiff_t GLsizeiptr;
 /* textures */
 #define GL_TEXTURE_2D 0x0DE1
 #define GL_TEXTURE0 0x84C0
+#define GL_TEXTURE1 0x84C1
 #define GL_RGB 0x1907
 #define GL_RGBA 0x1908
 #define GL_RGBA8 0x8058
+#define GL_RGBA32F 0x8814
 #define GL_TEXTURE_MAG_FILTER 0x2800
 #define GL_TEXTURE_MIN_FILTER 0x2801
 #define GL_TEXTURE_WRAP_S 0x2802
@@ -141,11 +146,16 @@ typedef void(GL33_APIENTRY *PFN_glGenBuffers)(GLsizei, GLuint *);
 typedef void(GL33_APIENTRY *PFN_glDeleteBuffers)(GLsizei, const GLuint *);
 typedef void(GL33_APIENTRY *PFN_glBindBuffer)(GLenum, GLuint);
 typedef void(GL33_APIENTRY *PFN_glBufferData)(GLenum, GLsizeiptr, const void *, GLenum);
+typedef void(GL33_APIENTRY *PFN_glBufferSubData)(GLenum, GLintptr, GLsizeiptr,
+                                                 const void *);
+typedef void(GL33_APIENTRY *PFN_glTexBuffer)(GLenum, GLenum, GLuint);
 typedef void(GL33_APIENTRY *PFN_glGenVertexArrays)(GLsizei, GLuint *);
 typedef void(GL33_APIENTRY *PFN_glDeleteVertexArrays)(GLsizei, const GLuint *);
 typedef void(GL33_APIENTRY *PFN_glBindVertexArray)(GLuint);
 typedef void(GL33_APIENTRY *PFN_glVertexAttribPointer)(GLuint, GLint, GLenum, GLboolean,
                                                        GLsizei, const void *);
+typedef void(GL33_APIENTRY *PFN_glVertexAttribIPointer)(GLuint, GLint, GLenum, GLsizei,
+                                                        const void *);
 typedef void(GL33_APIENTRY *PFN_glEnableVertexAttribArray)(GLuint);
 typedef void(GL33_APIENTRY *PFN_glDisableVertexAttribArray)(GLuint);
 typedef void(GL33_APIENTRY *PFN_glVertexAttrib3f)(GLuint, GLfloat, GLfloat, GLfloat);
@@ -198,8 +208,9 @@ typedef void(GL33_APIENTRY *PFN_glRenderbufferStorage)(GLenum, GLenum, GLsizei, 
   X(glLineWidth) X(glPixelStorei) X(glReadPixels) X(glDrawArrays) X(glDrawElements)  \
   X(glGenTextures) X(glDeleteTextures) X(glBindTexture) X(glTexImage2D)              \
   X(glTexParameteri) X(glActiveTexture) X(glGenerateMipmap) X(glGenBuffers)          \
-  X(glDeleteBuffers) X(glBindBuffer) X(glBufferData) X(glGenVertexArrays)            \
-  X(glDeleteVertexArrays) X(glBindVertexArray) X(glVertexAttribPointer)              \
+  X(glDeleteBuffers) X(glBindBuffer) X(glBufferData) X(glBufferSubData)              \
+  X(glTexBuffer) X(glGenVertexArrays) X(glDeleteVertexArrays) X(glBindVertexArray)   \
+  X(glVertexAttribPointer) X(glVertexAttribIPointer)                                 \
   X(glEnableVertexAttribArray) X(glDisableVertexAttribArray) X(glVertexAttrib3f)     \
   X(glCreateShader) X(glShaderSource) X(glCompileShader) X(glGetShaderiv)            \
   X(glGetShaderInfoLog) X(glDeleteShader) X(glCreateProgram) X(glAttachShader)       \
@@ -246,10 +257,13 @@ const char *gl33_load(void *(*getproc)(const char *));
 #define glDeleteBuffers gl33_glDeleteBuffers
 #define glBindBuffer gl33_glBindBuffer
 #define glBufferData gl33_glBufferData
+#define glBufferSubData gl33_glBufferSubData
+#define glTexBuffer gl33_glTexBuffer
 #define glGenVertexArrays gl33_glGenVertexArrays
 #define glDeleteVertexArrays gl33_glDeleteVertexArrays
 #define glBindVertexArray gl33_glBindVertexArray
 #define glVertexAttribPointer gl33_glVertexAttribPointer
+#define glVertexAttribIPointer gl33_glVertexAttribIPointer
 #define glEnableVertexAttribArray gl33_glEnableVertexAttribArray
 #define glDisableVertexAttribArray gl33_glDisableVertexAttribArray
 #define glVertexAttrib3f gl33_glVertexAttrib3f

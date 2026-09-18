@@ -141,7 +141,22 @@ struct LoadContext {
   Vec3 lo{0.0f, 0.0f, 0.0f}, hi{0.0f, 0.0f, 0.0f};
   bool boundsSet = false;
   size_t meshCount = 0;
+
+  // Animated scenes only.
+  Rig *rig = nullptr;
+  std::vector<SkinVertex> skin;  // parallel to verts
+  std::vector<MorphMesh> morphs;
 };
+
+// Any of these means the scene moves, or can: skinned meshes are posed
+// through their skeleton even when the file carries no clips.
+bool isAnimated(const aiScene *scene) {
+  if (scene->mNumAnimations > 0) return true;
+  for (unsigned int i = 0; i < scene->mNumMeshes; ++i) {
+    if (scene->mMeshes[i]->HasBones() || scene->mMeshes[i]->mNumAnimMeshes > 0) return true;
+  }
+  return false;
+}
 
 void readMaterials(LoadContext &ctx) {
   std::unordered_map<std::string, GLuint> cache;
@@ -216,8 +231,98 @@ void readMaterials(LoadContext &ctx) {
   }
 }
 
-void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, LoadContext &ctx) {
+// Fills in which joints move each vertex of a mesh in an animated scene. A
+// rigid mesh follows its node outright; a skinned one takes its four
+// strongest bones.
+void addSkin(const aiMesh *mesh, int node, LoadContext &ctx) {
+  const size_t first = ctx.skin.size();
+  ctx.skin.resize(first + mesh->mNumVertices);
+  SkinVertex *out = &ctx.skin[first];
+
+  if (!mesh->HasBones()) {
+    const auto joint = static_cast<std::uint16_t>(ctx.rig->joint(node));
+    for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
+      out[i].joints[0] = joint;
+      out[i].weights[0] = 1.0f;
+    }
+    return;
+  }
+
+  for (unsigned int b = 0; b < mesh->mNumBones; ++b) {
+    const aiBone *bone = mesh->mBones[b];
+    const int boneNode = ctx.rig->findNode(bone->mName.C_Str());
+    if (boneNode < 0) continue;
+    const auto joint = static_cast<std::uint16_t>(ctx.rig->joint(boneNode, bone->mOffsetMatrix));
+    for (unsigned int w = 0; w < bone->mNumWeights; ++w) {
+      const aiVertexWeight &vw = bone->mWeights[w];
+      if (vw.mVertexId >= mesh->mNumVertices || !(vw.mWeight > 0.0f)) continue;
+      SkinVertex &s = out[vw.mVertexId];
+      int weakest = 0;
+      for (int k = 1; k < 4; ++k) {
+        if (s.weights[k] < s.weights[weakest]) weakest = k;
+      }
+      if (vw.mWeight > s.weights[weakest]) {
+        s.joints[weakest] = joint;
+        s.weights[weakest] = vw.mWeight;
+      }
+    }
+  }
+
+  // Weights have to sum to one, or the vertex is pulled toward the origin. A
+  // vertex no bone claims follows the mesh's own node instead of collapsing.
+  for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
+    SkinVertex &s = out[i];
+    const float sum = s.weights[0] + s.weights[1] + s.weights[2] + s.weights[3];
+    if (sum > 0.0f) {
+      for (float &w : s.weights) w /= sum;
+    } else {
+      s.joints[0] = static_cast<std::uint16_t>(ctx.rig->joint(node));
+      s.weights[0] = 1.0f;
+    }
+  }
+}
+
+// Keeps a mesh's morph targets as offsets from its base vertices. Assimp
+// stores each target as a complete replacement mesh.
+void addMorphs(const aiMesh *mesh, int node, GLuint firstVertex, LoadContext &ctx) {
+  if (mesh->mNumAnimMeshes == 0) return;
+  const unsigned int n = mesh->mNumVertices;
+
+  MorphMesh morph;
+  morph.node = node;
+  morph.firstVertex = firstVertex;
+  morph.base.assign(ctx.verts.begin() + firstVertex, ctx.verts.end());
+  for (unsigned int t = 0; t < mesh->mNumAnimMeshes; ++t) {
+    const aiAnimMesh *target = mesh->mAnimMeshes[t];
+    std::vector<Vec3> positions, normals;
+    if (target->HasPositions() && target->mNumVertices == n) {
+      positions.resize(n);
+      for (unsigned int v = 0; v < n; ++v) {
+        const aiVector3D d = target->mVertices[v] - mesh->mVertices[v];
+        positions[v] = Vec3{d.x, d.y, d.z};
+      }
+    }
+    if (target->HasNormals() && mesh->HasNormals() && target->mNumVertices == n) {
+      normals.resize(n);
+      for (unsigned int v = 0; v < n; ++v) {
+        const aiVector3D d = target->mNormals[v] - mesh->mNormals[v];
+        normals[v] = Vec3{d.x, d.y, d.z};
+      }
+    }
+    morph.positions.push_back(std::move(positions));
+    morph.normals.push_back(std::move(normals));
+    morph.defaults.push_back(target->mWeight);
+  }
+  ctx.morphs.push_back(std::move(morph));
+}
+
+// Appends one instance of a mesh. In a static scene `xf` is its world
+// transform, baked into the vertices here. In an animated one the vertices
+// stay in the mesh's own space, `node` names the node carrying it, and `xf`
+// -- that node's rest transform -- only decides the winding.
+void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, int node, LoadContext &ctx) {
   if (mesh->mNumFaces == 0 || mesh->mNumVertices == 0) return;
+  const bool animated = ctx.rig != nullptr;
 
   // Normals go through the cofactor matrix of the upper 3x3, whose rows are
   // the cross products of the transform's rows. It is the inverse transpose
@@ -225,11 +330,13 @@ void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, LoadContext &ctx) {
   // inverse, and normalising strips the scale -- but not the determinant's
   // sign. Under a mirror that sign is negative and would turn every normal
   // inward, so it is multiplied back out. A mirror reverses winding too.
+  // (Animated meshes get the same treatment in the vertex shader; a skinned
+  // one is taken to be unmirrored at rest.)
   const Vec3 r0{xf.a1, xf.a2, xf.a3};
   const Vec3 r1{xf.b1, xf.b2, xf.b3};
   const Vec3 r2{xf.c1, xf.c2, xf.c3};
   const Vec3 c0 = cross(r1, r2), c1 = cross(r2, r0), c2 = cross(r0, r1);
-  const bool mirrored = dot(r0, c0) < 0.0f;
+  const bool mirrored = dot(r0, c0) < 0.0f && !(animated && mesh->HasBones());
   const float normalSign = mirrored ? -1.0f : 1.0f;
 
   const GLuint base = static_cast<GLuint>(ctx.verts.size());
@@ -251,13 +358,13 @@ void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, LoadContext &ctx) {
   }
 
   for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
-    const aiVector3D p = xf * mesh->mVertices[i];
     Vertex v;
+    const aiVector3D p = animated ? mesh->mVertices[i] : xf * mesh->mVertices[i];
     v.pos = Vec3{p.x, p.y, p.z};
 
     if (mesh->HasNormals()) {
       const Vec3 n{mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z};
-      v.nrm = normalize(Vec3{dot(c0, n), dot(c1, n), dot(c2, n)}) * normalSign;
+      v.nrm = animated ? n : normalize(Vec3{dot(c0, n), dot(c1, n), dot(c2, n)}) * normalSign;
     }
     if (hasColors) {
       const aiColor4D &c = mesh->mColors[0][i];
@@ -269,10 +376,17 @@ void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, LoadContext &ctx) {
       v.uv = Vec2{mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y};
     }
 
-    ctx.lo = ctx.boundsSet ? minVec(ctx.lo, v.pos) : v.pos;
-    ctx.hi = ctx.boundsSet ? maxVec(ctx.hi, v.pos) : v.pos;
-    ctx.boundsSet = true;
+    if (!animated) {  // animated bounds come from posing, after the walk
+      ctx.lo = ctx.boundsSet ? minVec(ctx.lo, v.pos) : v.pos;
+      ctx.hi = ctx.boundsSet ? maxVec(ctx.hi, v.pos) : v.pos;
+      ctx.boundsSet = true;
+    }
     ctx.verts.push_back(v);
+  }
+
+  if (animated) {
+    addSkin(mesh, node, ctx);
+    addMorphs(mesh, node, base, ctx);
   }
 
   const GLuint firstIndex = static_cast<GLuint>(ctx.indices.size());
@@ -322,10 +436,91 @@ void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, LoadContext &ctx) {
 void walk(const aiNode *node, const aiMatrix4x4 &parent, LoadContext &ctx) {
   const aiMatrix4x4 xf = parent * node->mTransformation;
   for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
-    addMesh(ctx.scene->mMeshes[node->mMeshes[i]], xf, ctx);
+    addMesh(ctx.scene->mMeshes[node->mMeshes[i]], xf, -1, ctx);
   }
   for (unsigned int i = 0; i < node->mNumChildren; ++i) {
     walk(node->mChildren[i], xf, ctx);
+  }
+}
+
+void walkAnimated(const aiNode *node, LoadContext &ctx) {
+  const int index = ctx.rig->nodeIndex(node);
+  for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+    addMesh(ctx.scene->mMeshes[node->mMeshes[i]], ctx.rig->restTransform(index), index,
+            ctx);
+  }
+  for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+    walkAnimated(node->mChildren[i], ctx);
+  }
+}
+
+// A vertex as the shader will place it, for working out bounds on the CPU.
+Vec3 posed(Vec3 p, const SkinVertex &s, const std::vector<float> &rows) {
+  float m[12] = {};
+  for (int k = 0; k < 4; ++k) {
+    if (s.weights[k] == 0.0f) continue;
+    const float *r = &rows[static_cast<size_t>(s.joints[k]) * 12];
+    for (int i = 0; i < 12; ++i) m[i] += s.weights[k] * r[i];
+  }
+  return Vec3{m[0] * p.x + m[1] * p.y + m[2] * p.z + m[3],
+              m[4] * p.x + m[5] * p.y + m[6] * p.z + m[7],
+              m[8] * p.x + m[9] * p.y + m[10] * p.z + m[11]};
+}
+
+// The ground and the camera frame have to suit the whole animation, not just
+// its first frame, so the rest pose and a spread of moments through every
+// clip are posed and pooled. Dense meshes are thinned out for this; the
+// bounds only need to be close.
+void animatedBounds(const Rig &rig, LoadContext &ctx) {
+  const std::vector<Vertex> &verts = ctx.verts;
+  const size_t stride = std::max<size_t>(1, verts.size() / 20000);
+
+  // Which morph mesh, if any, each vertex belongs to.
+  std::vector<int> morphOf;
+  if (!ctx.morphs.empty()) {
+    morphOf.assign(verts.size(), -1);
+    for (size_t m = 0; m < ctx.morphs.size(); ++m) {
+      const MorphMesh &mm = ctx.morphs[m];
+      std::fill(morphOf.begin() + mm.firstVertex,
+                morphOf.begin() + mm.firstVertex + mm.base.size(), static_cast<int>(m));
+    }
+  }
+
+  std::vector<float> rows;
+  std::vector<std::vector<float>> weights(ctx.morphs.size());
+  auto pool = [&](int clip, double seconds) {
+    rig.pose(clip, seconds, rows);
+    for (size_t m = 0; m < ctx.morphs.size(); ++m) {
+      weights[m] = ctx.morphs[m].defaults;
+      rig.morphWeights(clip, seconds, ctx.morphs[m].node, weights[m]);
+    }
+    for (size_t v = 0; v < verts.size(); v += stride) {
+      Vec3 p = verts[v].pos;
+      if (!morphOf.empty() && morphOf[v] >= 0) {
+        const MorphMesh &mm = ctx.morphs[morphOf[v]];
+        const size_t local = v - mm.firstVertex;
+        for (size_t t = 0; t < mm.positions.size(); ++t) {
+          const float w = weights[morphOf[v]][t];
+          if (w != 0.0f && !mm.positions[t].empty()) p += mm.positions[t][local] * w;
+        }
+      }
+      p = posed(p, ctx.skin[v], rows);
+      ctx.lo = ctx.boundsSet ? minVec(ctx.lo, p) : p;
+      ctx.hi = ctx.boundsSet ? maxVec(ctx.hi, p) : p;
+      ctx.boundsSet = true;
+    }
+  };
+
+  pool(-1, 0.0);
+  const std::vector<Rig::Clip> &clips = rig.clips();
+  if (clips.empty()) return;
+  const int samples = std::max(4, std::min(32, 128 / static_cast<int>(clips.size())));
+  for (size_t c = 0; c < clips.size(); ++c) {
+    const double seconds = clips[c].seconds();
+    for (int s = 0; s <= samples; ++s) {
+      // Stop just short of the end, which would wrap back to the start.
+      pool(static_cast<int>(c), seconds * std::min(s / double(samples), 0.9999));
+    }
   }
 }
 
@@ -342,20 +537,34 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   // Only consulted for meshes that arrive with no normals of their own.
   importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, opts.creaseAngle);
 
+  // The scene is read raw first, because the post-processing depends on
+  // whether it is animated, and only then processed.
+  const aiScene *scene = importer.ReadFile(path.c_str(), 0);
+  if (!scene || !scene->mRootNode) {
+    error = importer.GetErrorString();
+    if (error.empty()) error = "assimp could not read the file";
+    return false;
+  }
+  const bool animated = isAnimated(scene);
+
   // Assimp hands back texture coordinates in one convention whatever the
   // format -- v = 0 at the bottom of the image -- while the images are
   // uploaded top row first. FlipUVs lines the two up.
-  const unsigned int flags =
+  unsigned int flags =
       aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
       aiProcess_GenSmoothNormals | aiProcess_SortByPType | aiProcess_FindDegenerates |
       aiProcess_FindInvalidData | aiProcess_GenUVCoords | aiProcess_TransformUVCoords |
       aiProcess_FlipUVs | aiProcess_RemoveRedundantMaterials |
-      aiProcess_OptimizeMeshes | aiProcess_ImproveCacheLocality;
+      aiProcess_ImproveCacheLocality;
+  // Merging meshes suits a static scene, but it does not carry morph targets
+  // across, so an animated one keeps its meshes as they are -- and has each
+  // vertex's bones cut down to the four the shader takes.
+  flags |= animated ? aiProcess_LimitBoneWeights : aiProcess_OptimizeMeshes;
 
-  const aiScene *scene = importer.ReadFile(path.c_str(), flags);
+  scene = importer.ApplyPostProcessing(flags);
   if (!scene || !scene->mRootNode) {
     error = importer.GetErrorString();
-    if (error.empty()) error = "assimp could not read the file";
+    if (error.empty()) error = "assimp could not process the file";
     return false;
   }
   if (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) {
@@ -385,18 +594,30 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   if (opts.zUp) {
     root = aiMatrix4x4(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1);
   }
-  walk(scene->mRootNode, root, ctx);
 
-  if (ctx.indices.empty()) {
-    for (GLuint tex : ctx.textures) glDeleteTextures(1, &tex);
-    error = "the file loaded, but holds no triangles";
-    return false;
+  Rig rig;
+  if (animated) {
+    rig.build(scene, root);
+    ctx.rig = &rig;
+    ctx.skin.reserve(vertexGuess);
+    walkAnimated(scene->mRootNode, ctx);
+  } else {
+    walk(scene->mRootNode, root, ctx);
   }
+
+  auto fail = [&](const char *message) {
+    for (GLuint tex : ctx.textures) glDeleteTextures(1, &tex);
+    error = message;
+    return false;
+  };
+  if (ctx.indices.empty()) return fail("the file loaded, but holds no triangles");
+  if (rig.jointCount() > 65536) return fail("more than 65,536 joints; too many to animate");
+  if (animated) animatedBounds(rig, ctx);
 
   // Everything is in hand, so the model on screen can now be replaced.
   release();
 
-  upload(ctx.verts, ctx.indices);
+  upload(ctx.verts, ctx.skin, ctx.indices, !ctx.morphs.empty());
   indices_ = std::move(ctx.indices);
   draws_ = std::move(ctx.draws);
   materials_ = std::move(ctx.materials);
@@ -406,6 +627,34 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   path_ = path;
 
   stats_ = ModelStats{};
+  if (animated) {
+    animated_ = true;
+    stats_.joints = rig.jointCount();
+    for (const MorphMesh &m : ctx.morphs) stats_.morphTargets += m.defaults.size();
+    rig_ = std::move(rig);
+    morphs_ = std::move(ctx.morphs);
+
+    const size_t stride = std::max<size_t>(1, ctx.verts.size() / 4096);
+    for (size_t v = 0; v < ctx.verts.size(); v += stride) {
+      samplePositions_.push_back(ctx.verts[v].pos);
+      sampleSkin_.push_back(ctx.skin[v]);
+    }
+
+    // One buffer texture, three RGBA32F texels (the rows of an affine
+    // matrix) per joint, rewritten every frame.
+    glGenBuffers(1, &jointBuffer_);
+    glBindBuffer(GL_TEXTURE_BUFFER, jointBuffer_);
+    glBufferData(GL_TEXTURE_BUFFER,
+                 static_cast<GLsizeiptr>(rig_.jointCount() * 12 * sizeof(float)), nullptr,
+                 GL_STREAM_DRAW);
+    glGenTextures(1, &jointTex_);
+    glBindTexture(GL_TEXTURE_BUFFER, jointTex_);
+    glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, jointBuffer_);
+    glBindTexture(GL_TEXTURE_BUFFER, 0);
+    glBindBuffer(GL_TEXTURE_BUFFER, 0);
+    setPose(-1, 0.0);
+  }
+
   stats_.vertices = ctx.verts.size();
   stats_.triangles = indexCount_ / 3;
   stats_.meshes = ctx.meshCount;
@@ -416,7 +665,55 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   return true;
 }
 
-void Model::upload(const std::vector<Vertex> &verts, const std::vector<GLuint> &indices) {
+void Model::setPose(int clip, double seconds) {
+  if (!animated_) return;
+
+  rig_.pose(clip, seconds, jointRows_);
+  glBindBuffer(GL_TEXTURE_BUFFER, jointBuffer_);
+  glBufferSubData(GL_TEXTURE_BUFFER, 0,
+                  static_cast<GLsizeiptr>(jointRows_.size() * sizeof(float)),
+                  jointRows_.data());
+  glBindBuffer(GL_TEXTURE_BUFFER, 0);
+
+  Vec3 sum{0.0f, 0.0f, 0.0f};
+  for (size_t i = 0; i < samplePositions_.size(); ++i) {
+    sum += posed(samplePositions_[i], sampleSkin_[i], jointRows_);
+  }
+  if (!samplePositions_.empty()) {
+    poseCentre_ = sum * (1.0f / static_cast<float>(samplePositions_.size()));
+  }
+
+  for (MorphMesh &m : morphs_) {
+    weightScratch_ = m.defaults;
+    rig_.morphWeights(clip, seconds, m.node, weightScratch_);
+    if (weightScratch_ == m.applied) continue;  // unchanged; nothing to upload
+    m.applied = weightScratch_;
+
+    morphScratch_ = m.base;
+    for (size_t t = 0; t < weightScratch_.size(); ++t) {
+      const float w = weightScratch_[t];
+      if (w == 0.0f) continue;
+      if (!m.positions[t].empty()) {
+        for (size_t v = 0; v < morphScratch_.size(); ++v) {
+          morphScratch_[v].pos += m.positions[t][v] * w;
+        }
+      }
+      if (!m.normals[t].empty()) {
+        for (size_t v = 0; v < morphScratch_.size(); ++v) {
+          morphScratch_[v].nrm += m.normals[t][v] * w;
+        }
+      }
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    glBufferSubData(GL_ARRAY_BUFFER, static_cast<GLintptr>(m.firstVertex * sizeof(Vertex)),
+                    static_cast<GLsizeiptr>(morphScratch_.size() * sizeof(Vertex)),
+                    morphScratch_.data());
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  }
+}
+
+void Model::upload(const std::vector<Vertex> &verts, const std::vector<SkinVertex> &skin,
+                   const std::vector<GLuint> &indices, bool dynamic) {
   glGenVertexArrays(1, &vao_);
   glGenBuffers(1, &vbo_);
   glGenBuffers(1, &ebo_);
@@ -425,7 +722,7 @@ void Model::upload(const std::vector<Vertex> &verts, const std::vector<GLuint> &
   glBindBuffer(GL_ARRAY_BUFFER, vbo_);
   glBufferData(GL_ARRAY_BUFFER,
                static_cast<GLsizeiptr>(verts.size() * sizeof(Vertex)), verts.data(),
-               GL_STATIC_DRAW);
+               dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW);
 
   const GLsizei stride = static_cast<GLsizei>(sizeof(Vertex));
   const struct {
@@ -442,6 +739,22 @@ void Model::upload(const std::vector<Vertex> &verts, const std::vector<GLuint> &
     glVertexAttribPointer(a.location, a.size, GL_FLOAT, GL_FALSE, stride,
                           reinterpret_cast<const void *>(a.offset));
     glEnableVertexAttribArray(a.location);
+  }
+
+  if (!skin.empty()) {
+    glGenBuffers(1, &skinVbo_);
+    glBindBuffer(GL_ARRAY_BUFFER, skinVbo_);
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(skin.size() * sizeof(SkinVertex)),
+                 skin.data(), GL_STATIC_DRAW);
+    const GLsizei skinStride = static_cast<GLsizei>(sizeof(SkinVertex));
+    // Joint numbers go in as integers; as floats they would be interpolated
+    // and rounded like any other attribute.
+    glVertexAttribIPointer(4, 4, GL_UNSIGNED_SHORT, skinStride,
+                           reinterpret_cast<const void *>(offsetof(SkinVertex, joints)));
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, skinStride,
+                          reinterpret_cast<const void *>(offsetof(SkinVertex, weights)));
+    glEnableVertexAttribArray(5);
   }
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
@@ -500,8 +813,18 @@ void Model::release() {
   if (vbo_) glDeleteBuffers(1, &vbo_);
   if (ebo_) glDeleteBuffers(1, &ebo_);
   if (edgeEbo_) glDeleteBuffers(1, &edgeEbo_);
+  if (skinVbo_) glDeleteBuffers(1, &skinVbo_);
+  if (jointBuffer_) glDeleteBuffers(1, &jointBuffer_);
+  if (jointTex_) glDeleteTextures(1, &jointTex_);
   for (GLuint tex : ownedTextures_) glDeleteTextures(1, &tex);
 
+  skinVbo_ = jointBuffer_ = jointTex_ = 0;
+  animated_ = false;
+  rig_ = Rig();
+  morphs_.clear();
+  samplePositions_.clear();
+  sampleSkin_.clear();
+  poseCentre_ = Vec3{0.0f, 0.0f, 0.0f};
   vao_ = vbo_ = ebo_ = edgeEbo_ = 0;
   indexCount_ = edgeCount_ = 0;
   edgesBuilt_ = false;

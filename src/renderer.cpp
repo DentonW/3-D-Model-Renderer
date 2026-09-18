@@ -41,10 +41,13 @@ GLuint compile(GLenum stage, const std::vector<const char *> &parts,
   return shader;
 }
 
-// `light` pulls in the shared lighting function; only the mesh shader wants it.
-GLuint link(const char *vertexSource, const char *fragmentSource, bool light,
+// `skin` pulls the posing function into the vertex shader, and `light` the
+// shared lighting function into the fragment shader.
+GLuint link(const char *vertexSource, const char *fragmentSource, bool skin, bool light,
             std::string &error) {
-  std::vector<const char *> vs{shaders::kHeader, vertexSource};
+  std::vector<const char *> vs{shaders::kHeader};
+  if (skin) vs.push_back(shaders::kSkin);
+  vs.push_back(vertexSource);
   std::vector<const char *> fs{shaders::kHeader};
   if (light) fs.push_back(shaders::kLight);
   fs.push_back(fragmentSource);
@@ -132,22 +135,22 @@ bool Renderer::init(std::string &error) {
 }
 
 bool Renderer::buildPrograms(std::string &error) {
-  meshProgram_ = link(shaders::kMeshVS, shaders::kMeshFS, true, error);
+  meshProgram_ = link(shaders::kMeshVS, shaders::kMeshFS, true, true, error);
   if (!meshProgram_) {
     error = "mesh shader: " + error;
     return false;
   }
-  groundProgram_ = link(shaders::kGroundVS, shaders::kGroundFS, false, error);
+  groundProgram_ = link(shaders::kGroundVS, shaders::kGroundFS, false, false, error);
   if (!groundProgram_) {
     error = "ground shader: " + error;
     return false;
   }
-  lineProgram_ = link(shaders::kLineVS, shaders::kLineFS, false, error);
+  lineProgram_ = link(shaders::kLineVS, shaders::kLineFS, true, false, error);
   if (!lineProgram_) {
     error = "line shader: " + error;
     return false;
   }
-  bgProgram_ = link(shaders::kBackgroundVS, shaders::kBackgroundFS, false, error);
+  bgProgram_ = link(shaders::kBackgroundVS, shaders::kBackgroundFS, false, false, error);
   if (!bgProgram_) {
     error = "background shader: " + error;
     return false;
@@ -186,9 +189,19 @@ bool Renderer::buildPrograms(std::string &error) {
   groundU_.gridWidth = at(groundProgram_, "uGridWidth");
   groundU_.grid = at(groundProgram_, "uGrid");
 
+  meshU_.animated = at(meshProgram_, "uAnimated");
   lineMvp_ = at(lineProgram_, "uMVP");
+  lineAnimated_ = at(lineProgram_, "uAnimated");
   bgTop_ = at(bgProgram_, "uTop");
   bgBottom_ = at(bgProgram_, "uBottom");
+
+  // Joint matrices sit on texture unit 1, clear of the material textures on
+  // unit 0: samplers of two types on one unit fail every draw.
+  glUseProgram(meshProgram_);
+  glUniform1i(at(meshProgram_, "uJoints"), 1);
+  glUseProgram(lineProgram_);
+  glUniform1i(at(lineProgram_, "uJoints"), 1);
+  glUseProgram(0);
   return true;
 }
 
@@ -334,7 +347,13 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
             opts.backgroundTop * 0.55f + opts.backgroundBottom * 0.45f);
     setVec3(groundU_.gridCol, opts.gridColor);
     setVec3(groundU_.light, light);
-    glUniform2f(groundU_.centre, (lo.x + hi.x) * 0.5f, (lo.z + hi.z) * 0.5f);
+    // The contact shadow sits under the model: the middle of its bounds, or
+    // for an animated one, wherever the current pose has taken it.
+    if (model.animated()) {
+      glUniform2f(groundU_.centre, model.poseCentre().x, model.poseCentre().z);
+    } else {
+      glUniform2f(groundU_.centre, (lo.x + hi.x) * 0.5f, (lo.z + hi.z) * 0.5f);
+    }
     glUniform1f(groundU_.span, span);
     glUniform1f(groundU_.cell, niceStep(std::max(span, 1e-3f) * 0.5f));
     glUniform1f(groundU_.gridStrength, opts.gridStrength);
@@ -353,8 +372,18 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
     glDisable(GL_POLYGON_OFFSET_FILL);
   }
 
+  // An animated model's joint matrices, which both the surface and the
+  // wireframe pose it by.
+  const bool animated = model.animated();
+  if (animated) {
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_BUFFER, model.jointTexture());
+    glActiveTexture(GL_TEXTURE0);
+  }
+
   if (!model.empty() && opts.wireframe != WireMode::Only) {
     glUseProgram(meshProgram_);
+    glUniform1i(meshU_.animated, animated ? 1 : 0);
     glUniformMatrix4fv(meshU_.mvp, 1, GL_TRUE, mvp.m);
     glUniform1i(meshU_.flat, opts.flatShading ? 1 : 0);
     glUniform1f(meshU_.alphaCutoff, opts.alphaCutoff);
@@ -421,6 +450,7 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
       const bool alone = opts.wireframe == WireMode::Only;
       const Vec3 color = alone ? Vec3{0.80f, 0.82f, 0.86f} : Vec3{0.08f, 0.09f, 0.11f};
       glUseProgram(lineProgram_);
+      glUniform1i(lineAnimated_, animated ? 1 : 0);
       glUniformMatrix4fv(lineMvp_, 1, GL_TRUE, mvp.m);
       glBindVertexArray(model.vao());
       // The line shader wants a colour in slot 1, where the mesh layout keeps
@@ -437,6 +467,7 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
 
   if (!model.empty() && opts.showGround) {
     glUseProgram(lineProgram_);
+    glUniform1i(lineAnimated_, 0);  // the gnomon stays where it was put
     glUniformMatrix4fv(lineMvp_, 1, GL_TRUE, mvp.m);
     glBindVertexArray(axisVao_);
     glLineWidth(static_cast<float>(std::max(1, ss)));

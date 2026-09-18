@@ -3,7 +3,8 @@
 // The interaction is the one the tkinter GUI had: left-drag orbits,
 // right-drag pans, the wheel zooms, a double-click reframes, and single keys
 // toggle the display options. Frames are drawn on demand rather than in a
-// spin loop, so a still viewport costs nothing.
+// spin loop, so a still viewport costs nothing; only a playing animation
+// keeps the loop turning.
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
@@ -33,10 +34,22 @@ struct App {
   double lastX = 0.0, lastY = 0.0;
   double lastClickTime = -1.0;
   double lastClickX = 0.0, lastClickY = 0.0;
+
+  // Animation playback. clip -1 is the rest pose.
+  int clip = -1;
+  double animTime = 0.0;  // seconds into the clip
+  bool playing = true;
+  double lastTick = 0.0;  // glfwGetTime() when animTime last advanced
 };
 
 App &app(GLFWwindow *window) {
   return *static_cast<App *>(glfwGetWindowUserPointer(window));
+}
+
+// True while there is a clip running that needs new frames.
+bool animating(const App &a) {
+  return a.model.animated() && a.playing && a.clip >= 0 &&
+         a.model.clips()[a.clip].seconds() > 0.0;
 }
 
 std::string withCommas(size_t value) {
@@ -63,8 +76,17 @@ void updateTitle(App &a, const char *note = nullptr) {
   if (note) {
     title = std::string(note) + " - " + title;
   } else if (!a.model.empty()) {
+    std::string clip;
+    if (a.model.animated()) {
+      const auto &clips = a.model.clips();
+      clip = a.clip < 0 ? std::string("rest pose")
+                        : clips[a.clip].name + " (" + std::to_string(a.clip + 1) + "/" +
+                              std::to_string(clips.size()) + ")";
+      if (a.clip >= 0 && !a.playing) clip += ", paused";
+      clip += "  -  ";
+    }
     title = baseNameOf(a.model.path()) + "  -  " +
-            withCommas(a.model.stats().triangles) + " tris  -  " + title;
+            withCommas(a.model.stats().triangles) + " tris  -  " + clip + title;
   }
   glfwSetWindowTitle(a.window, title.c_str());
 }
@@ -79,6 +101,16 @@ void describe(const Model &model) {
               withCommas(s.textures).c_str());
   std::printf("  bounds  x [%.3g, %.3g]  y [%.3g, %.3g]  z [%.3g, %.3g]\n", lo.x, hi.x,
               lo.y, hi.y, lo.z, hi.z);
+  if (model.animated()) {
+    const auto &clips = model.clips();
+    std::printf("  animated: %s joints / %s morph targets / %s clips\n",
+                withCommas(s.joints).c_str(), withCommas(s.morphTargets).c_str(),
+                withCommas(clips.size()).c_str());
+    for (size_t i = 0; i < clips.size(); ++i) {
+      std::printf("    %2zu  %-24s %6.2f s\n", i + 1, clips[i].name.c_str(),
+                  clips[i].seconds());
+    }
+  }
   std::printf("  read in %.2f s\n", s.loadSeconds);
   std::fflush(stdout);
 }
@@ -90,6 +122,14 @@ bool loadModel(App &a, const std::string &path) {
     return false;
   }
   describe(a.model);
+
+  // Start on the requested clip, or the first if there are fewer than that.
+  const int clips = static_cast<int>(a.model.clips().size());
+  a.clip = a.opts.anim == 0 || clips == 0 ? -1 : (a.opts.anim <= clips ? a.opts.anim - 1 : 0);
+  a.animTime = a.opts.startTime;
+  a.playing = true;
+  a.lastTick = glfwGetTime();
+
   a.renderer.onModelChanged(a.model);
   a.camera.fov = a.opts.fov;
   a.camera.frame(a.model.boundsMin(), a.model.boundsMax());
@@ -98,10 +138,24 @@ bool loadModel(App &a, const std::string &path) {
   return true;
 }
 
+// Moves to another clip -- `step` of +1 or -1 -- with the rest pose as one
+// stop on the way round, and starts it from the beginning.
+void switchClip(App &a, int step) {
+  const int count = static_cast<int>(a.model.clips().size());
+  if (!a.model.animated()) return;
+  a.clip = (a.clip + 1 + step + (count + 1)) % (count + 1) - 1;
+  a.animTime = 0.0;
+  a.playing = true;
+  a.lastTick = glfwGetTime();
+  updateTitle(a);
+  a.dirty = true;
+}
+
 void renderFrame(App &a) {
   int width = 0, height = 0;
   glfwGetFramebufferSize(a.window, &width, &height);
   if (width <= 0 || height <= 0) return;  // minimised
+  a.model.setPose(a.clip, a.animTime);
   a.renderer.draw(a.model, a.camera, a.opts.render, width, height);
   glfwSwapBuffers(a.window);
   a.dirty = false;
@@ -175,6 +229,18 @@ void onKey(GLFWwindow *window, int key, int, int action, int mods) {
     case GLFW_KEY_C:
       o.cullBackfaces = !o.cullBackfaces;
       break;
+    case GLFW_KEY_SPACE:
+      if (!a.model.animated() || a.clip < 0) return;
+      a.playing = !a.playing;
+      a.lastTick = glfwGetTime();  // so resuming does not jump ahead
+      updateTitle(a);
+      break;
+    case GLFW_KEY_LEFT_BRACKET:
+      switchClip(a, -1);
+      return;
+    case GLFW_KEY_RIGHT_BRACKET:
+      switchClip(a, +1);
+      return;
     case GLFW_KEY_P: {
       renderFrame(a);  // make sure the offscreen buffer holds the current view
       const std::string written = writeScreenshot(a, {});
@@ -375,6 +441,7 @@ int main(int argc, char **argv) {
       "\nleft-drag orbit | right-drag pan | wheel zoom | double-click frame\n"
       "F frame   W wireframe (over surface / alone / off)   S flat shading\n"
       "G grid   B ground   T textures   V vertex colours   C back-face culling\n"
+      "Space play/pause   [ ] previous/next animation\n"
       "P screenshot   R reload   Esc quit\n");
   std::fflush(stdout);
 
@@ -387,8 +454,17 @@ int main(int argc, char **argv) {
   glfwSetWindowRefreshCallback(a.window, onWindowRefresh);
 
   while (!glfwWindowShouldClose(a.window)) {
-    // Nothing moves on its own, so wait for input rather than spinning: an
-    // idle viewport should not cost a core or a battery.
+    if (animating(a)) {
+      const double now = glfwGetTime();
+      a.animTime += now - a.lastTick;
+      a.lastTick = now;
+      // Keep the clock within the clip, where a double holds its precision.
+      const double length = a.model.clips()[a.clip].seconds();
+      if (a.animTime >= length) a.animTime = std::fmod(a.animTime, length);
+      a.dirty = true;
+    }
+    // Otherwise nothing moves on its own, so wait for input rather than
+    // spinning: an idle viewport should not cost a core or a battery.
     if (a.dirty) {
       renderFrame(a);
       glfwPollEvents();

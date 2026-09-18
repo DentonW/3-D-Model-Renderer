@@ -66,6 +66,11 @@ struct Options {
   // Starting view in degrees, when given; the camera's own defaults otherwise.
   std::optional<float> yaw;
   std::optional<float> pitch;
+
+  // For animated models: the clip to start on, counting from 1 (0 for the
+  // rest pose), and how far into it, in seconds.
+  int anim = 1;
+  double startTime = 0.0;
 };
 
 // Returns false on a bad argument (message in `error`) or on --help, in which

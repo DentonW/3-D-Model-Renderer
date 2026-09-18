@@ -12,6 +12,12 @@ struct Camera {
   Vec3 target{0.0f, 0.0f, 0.0f};
   float fov = 38.0f;
 
+  // How near and far the wheel may take the camera. frame() sets them
+  // relative to the model, so one in millimetres and one in kilometres get
+  // the same room to move.
+  float minDistance = 1e-4f;
+  float maxDistance = 1e6f;
+
   Vec3 eye() const;
 
   // Right / up / forward unit vectors.

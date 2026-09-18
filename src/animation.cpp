@@ -130,6 +130,16 @@ void Rig::build(const aiScene *scene, const aiMatrix4x4 &root) {
   }
 }
 
+void Rig::rebase(const aiVector3D &offset) {
+  aiMatrix4x4 shift;
+  aiMatrix4x4::Translation(-offset, shift);
+  root_ = shift * root_;
+  for (size_t i = 0; i < nodes_.size(); ++i) {
+    const int p = nodes_[i].parent;
+    rest_[i] = (p < 0 ? root_ : rest_[p]) * nodes_[i].local;
+  }
+}
+
 int Rig::nodeIndex(const aiNode *node) const {
   const auto it = byPointer_.find(node);
   return it == byPointer_.end() ? -1 : it->second;

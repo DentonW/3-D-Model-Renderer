@@ -106,6 +106,10 @@ class Model {
   // ground and the camera frame suit the whole animation.
   Vec3 boundsMin() const { return lo_; }
   Vec3 boundsMax() const { return hi_; }
+  // Where the drawn coordinates' origin sits in the file's own: nonzero only
+  // for a model far enough out that it was moved back near the origin to
+  // keep its precision. File coordinates are drawn ones plus this.
+  Vec3 origin() const { return origin_; }
   const ModelStats &stats() const { return stats_; }
   const std::string &path() const { return path_; }
 
@@ -135,6 +139,7 @@ class Model {
   std::vector<Material> materials_;
   std::vector<GLuint> ownedTextures_;
   Vec3 lo_{0.0f, 0.0f, 0.0f}, hi_{0.0f, 0.0f, 0.0f};
+  Vec3 origin_{0.0f, 0.0f, 0.0f};
   ModelStats stats_;
   std::string path_;
 

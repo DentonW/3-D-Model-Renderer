@@ -49,6 +49,10 @@ class Rig {
   // scene's root node: the Z-up correction, when there is one.
   void build(const aiScene *scene, const aiMatrix4x4 &root);
 
+  // Moves the whole scene by -offset, to bring one far from the origin back
+  // near it (see rebaseFor in model.cpp).
+  void rebase(const aiVector3D &offset);
+
   int nodeIndex(const aiNode *node) const;
   int findNode(const std::string &name) const;
   // A node's world transform with no clip applied.

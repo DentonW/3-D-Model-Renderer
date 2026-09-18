@@ -209,3 +209,20 @@ it costs a sort over every triangle corner.
   alpha channel are cut out at 0.5, so foliage and fences keep their shape.
 - **Orientation.** Y-up is assumed. `--z-up` rotates a Z-up file (much CAD,
   some Blender exports) into place.
+- **Units and scale.** Nothing assumes a unit. The camera frames the model's
+  bounding sphere, and everything that depends on size scales with the
+  model: the clipping planes, the zoom range, the grid spacing (a 1/2/5 step
+  of about half the footprint), the ground, the shadow and the axis lengths.
+  The same model at a billionth of the size or a billion times it renders
+  identically. The console prints the model's size in the file's own units,
+  which shows what those units were.
+- **Far from the origin.** CAD, survey and scan data are often placed
+  thousands of kilometres out, where a single-precision float can't tell
+  apart points closer than half a unit. Node transforms are composed in
+  double, and a model more than a hundred times its own size from the origin
+  is moved back near it before anything is rounded. The move is a whole
+  number of grid cells, so the grid lines stay where they were on the model.
+  An offset carried by node transforms is then drawn exactly. One written
+  into the vertex coordinates themselves has already been rounded by assimp
+  on import, so detail finer than about 1/16 unit is lost at a million units
+  out, and finer than half a unit at five million.

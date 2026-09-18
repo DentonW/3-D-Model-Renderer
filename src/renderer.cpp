@@ -227,7 +227,8 @@ void Renderer::onModelChanged(const Model &model) {
   glBindBuffer(GL_ARRAY_BUFFER, groundVbo_);
   glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_DYNAMIC_DRAW);
 
-  const float s = std::max(maxComponent(hi - lo), 1e-6f) * 0.55f;
+  float s = maxComponent(hi - lo);
+  s = (s > 0.0f ? s : 1.0f) * 0.55f;
   const float ox = lo.x, oy = groundY, oz = hi.z;
   const float axis[36] = {
       ox,     oy, oz,     0.86f, 0.32f, 0.32f,  // x
@@ -311,7 +312,10 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
     hi = Vec3{1.0f, 1.0f, 1.0f};
   }
   const Vec3 eye = camera.eye();
-  const float diag = std::max(length(hi - lo), 1e-6f);
+  // Everything scale-dependent here is taken from the model's own size, so
+  // the frame looks the same whatever units the file is in.
+  float diag = length(hi - lo);
+  if (!(diag > 0.0f)) diag = 1.0f;
   const double nearPlane = std::max(camera.distance * 0.002f, diag * 1e-4f);
   const double farPlane = camera.distance + diag * 60.0f;
   const Mat4 mvp = perspective(camera.fov, static_cast<double>(w) / std::max(h, 1),
@@ -355,7 +359,7 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
       glUniform2f(groundU_.centre, (lo.x + hi.x) * 0.5f, (lo.z + hi.z) * 0.5f);
     }
     glUniform1f(groundU_.span, span);
-    glUniform1f(groundU_.cell, niceStep(std::max(span, 1e-3f) * 0.5f));
+    glUniform1f(groundU_.cell, gridCell(lo, hi));
     glUniform1f(groundU_.gridStrength, opts.gridStrength);
     glUniform1f(groundU_.gridWidth, opts.gridWidth * static_cast<float>(ss));
     glUniform1i(groundU_.grid, opts.showGrid ? 1 : 0);

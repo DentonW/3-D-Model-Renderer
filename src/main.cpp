@@ -99,8 +99,12 @@ void describe(const Model &model) {
               withCommas(s.triangles).c_str(), withCommas(s.vertices).c_str(),
               withCommas(s.meshes).c_str(), withCommas(s.materials).c_str(),
               withCommas(s.textures).c_str());
-  std::printf("  bounds  x [%.3g, %.3g]  y [%.3g, %.3g]  z [%.3g, %.3g]\n", lo.x, hi.x,
-              lo.y, hi.y, lo.z, hi.z);
+  // In the file's own units and coordinates, which is what says whether it
+  // was modelled in millimetres or metres, and where it was put.
+  const Vec3 size = hi - lo;
+  const Vec3 centre = (lo + hi) * 0.5f + model.origin();
+  std::printf("  size %.4g x %.4g x %.4g, centred at (%.6g, %.6g, %.6g)\n", size.x, size.y,
+              size.z, centre.x, centre.y, centre.z);
   if (model.animated()) {
     const auto &clips = model.clips();
     std::printf("  animated: %s joints / %s morph targets / %s clips\n",

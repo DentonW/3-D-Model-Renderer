@@ -39,7 +39,7 @@ void Camera::pan(float dxPixels, float dyPixels) {
 
 void Camera::zoom(float ticks) {
   distance *= std::pow(ticks > 0.0f ? kZoomIn : kZoomOut, std::fabs(ticks));
-  distance = std::max(1e-4f, std::min(1e6f, distance));
+  distance = std::max(minDistance, std::min(maxDistance, distance));
 }
 
 void Camera::frame(Vec3 lo, Vec3 hi, float margin) {
@@ -48,5 +48,7 @@ void Camera::frame(Vec3 lo, Vec3 hi, float margin) {
   // would otherwise put the eye on top of the target.
   float radius = length(hi - lo) * 0.5f;
   if (!(radius > 0.0f)) radius = 1.0f;
-  distance = std::max(radius * margin / std::tan(fov * kPi / 180.0f * 0.5f), 1e-3f);
+  distance = radius * margin / std::tan(fov * kPi / 180.0f * 0.5f);
+  minDistance = distance * 1e-4f;
+  maxDistance = distance * 1e4f;
 }

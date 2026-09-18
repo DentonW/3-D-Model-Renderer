@@ -105,8 +105,10 @@ void main() {
     vec3 n = normalize(vNrm);
     if (uFlat) {
         // Face normal straight from the screen-space derivatives, so flat
-        // shading needs no second copy of the geometry.
-        vec3 fn = normalize(cross(dFdx(vPos), dFdy(vPos)));
+        // shading needs no second copy of the geometry. Each is normalised
+        // first: on a model a millionth of a unit across, their cross
+        // product would otherwise underflow.
+        vec3 fn = normalize(cross(normalize(dFdx(vPos)), normalize(dFdy(vPos))));
         n = dot(fn, n) < 0.0 ? -fn : fn;
     }
     // With culling off, a back face arrives with its normal pointing away
@@ -138,18 +140,18 @@ uniform bool uGrid;
 out vec4 FragColor;
 void main() {
     float d = length(vPos.xz - uCentre);
-    float shadow = pow(clamp(1.0 - d / max(uSpan * 0.62, 1e-6), 0.0, 1.0), 1.6);
+    float shadow = pow(clamp(1.0 - d / max(uSpan * 0.62, 1e-30), 0.0, 1.0), 1.6);
     vec3 col = uGround * uLight * (1.0 - 0.72 * shadow);
     if (uGrid) {
         // Distance to the nearest line in pixels. fwidth gives the exact
         // on-screen footprint, so the lines keep their width however oblique
         // the view is, and the one-pixel ramp at the edge antialiases them.
-        vec2 fw = fwidth(vPos.xz) + 1e-9;
+        vec2 fw = max(fwidth(vPos.xz), vec2(1e-30));
         vec2 px = abs(fract(vPos.xz / uCell + 0.5) - 0.5) * uCell / fw;
         float line = clamp(0.5 * uGridWidth + 0.5 - min(px.x, px.y), 0.0, 1.0);
         col += uGridCol * (line * uGridStrength);
     }
-    float f = clamp(1.0 - d / max(uSpan * 14.0, 1e-6), 0.0, 1.0);
+    float f = clamp(1.0 - d / max(uSpan * 14.0, 1e-30), 0.0, 1.0);
     f = f * f * (3.0 - 2.0 * f);
     col = mix(uHorizon, col, f);
     FragColor = vec4(pow(clamp(col, 0.0, 1.0), vec3(1.0 / 1.05)), 1.0);

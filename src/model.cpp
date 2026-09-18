@@ -142,11 +142,63 @@ struct LoadContext {
   bool boundsSet = false;
   size_t meshCount = 0;
 
+  // Static scenes: subtracted from every vertex before it is rounded to
+  // float, to bring a model far from the origin back near it.
+  aiVector3t<double> rebase{0.0, 0.0, 0.0};
+
   // Animated scenes only.
   Rig *rig = nullptr;
   std::vector<SkinVertex> skin;  // parallel to verts
   std::vector<MorphMesh> morphs;
 };
+
+using Mat4d = aiMatrix4x4t<double>;
+using Vec3d = aiVector3t<double>;
+
+// How far to shift a model toward the origin before its vertices are rounded
+// to float. Survey, CAD and scan data are often placed thousands of km out;
+// at 5,000,000 a float cannot tell apart points closer than half a unit, and
+// the GPU's own sums lose as much again. A model within a hundred times its
+// own size of the origin is left exactly where it is. One further out moves
+// by the whole number of grid cells nearest its centre, so it lands near the
+// origin with the grid lines still where they were on it.
+Vec3d rebaseFor(const Vec3d &lo, const Vec3d &hi) {
+  const Vec3d centre = (lo + hi) * 0.5;
+  const Vec3d size = hi - lo;
+  const double extent = std::max({size.x, size.y, size.z});
+  const double distance =
+      std::max({std::fabs(centre.x), std::fabs(centre.y), std::fabs(centre.z)});
+  if (!(extent > 0.0) || distance <= 100.0 * extent) return Vec3d(0.0, 0.0, 0.0);
+
+  const Vec3 loF(static_cast<float>(lo.x), 0.0f, static_cast<float>(lo.z));
+  const Vec3 hiF(static_cast<float>(hi.x), 0.0f, static_cast<float>(hi.z));
+  const double cell = gridCell(loF, hiF);
+  auto snap = [cell](double c) { return std::round(c / cell) * cell; };
+  return Vec3d(snap(centre.x), snap(centre.y), snap(centre.z));
+}
+
+// World-space bounds of a static scene, composed in double so that a far-off
+// model's size survives to decide how far to move it.
+void worldBounds(const aiNode *node, const Mat4d &parent, const aiScene *scene, Vec3d &lo,
+                 Vec3d &hi, bool &any) {
+  const Mat4d xf = parent * Mat4d(node->mTransformation);
+  for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+    const aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
+    for (unsigned int v = 0; v < mesh->mNumVertices; ++v) {
+      const aiVector3D &q = mesh->mVertices[v];
+      const Vec3d p = xf * Vec3d(q.x, q.y, q.z);
+      if (!any) {
+        lo = hi = p;
+        any = true;
+      }
+      lo = Vec3d(std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z));
+      hi = Vec3d(std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z));
+    }
+  }
+  for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+    worldBounds(node->mChildren[i], xf, scene, lo, hi, any);
+  }
+}
 
 // Any of these means the scene moves, or can: skinned meshes are posed
 // through their skeleton even when the file carries no clips.
@@ -340,7 +392,7 @@ void addMorphs(const aiMesh *mesh, int node, GLuint firstVertex, LoadContext &ct
 // transform, baked into the vertices here. In an animated one the vertices
 // stay in the mesh's own space, `node` names the node carrying it, and `xf`
 // -- that node's rest transform -- only decides the winding.
-void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, int node, LoadContext &ctx) {
+void addMesh(const aiMesh *mesh, const Mat4d &xf, int node, LoadContext &ctx) {
   if (mesh->mNumFaces == 0 || mesh->mNumVertices == 0) return;
   const bool animated = ctx.rig != nullptr;
 
@@ -352,9 +404,9 @@ void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, int node, LoadContext &c
   // inward, so it is multiplied back out. A mirror reverses winding too.
   // (Animated meshes get the same treatment in the vertex shader; a skinned
   // one is taken to be unmirrored at rest.)
-  const Vec3 r0{xf.a1, xf.a2, xf.a3};
-  const Vec3 r1{xf.b1, xf.b2, xf.b3};
-  const Vec3 r2{xf.c1, xf.c2, xf.c3};
+  const Vec3 r0(static_cast<float>(xf.a1), static_cast<float>(xf.a2), static_cast<float>(xf.a3));
+  const Vec3 r1(static_cast<float>(xf.b1), static_cast<float>(xf.b2), static_cast<float>(xf.b3));
+  const Vec3 r2(static_cast<float>(xf.c1), static_cast<float>(xf.c2), static_cast<float>(xf.c3));
   const Vec3 c0 = cross(r1, r2), c1 = cross(r2, r0), c2 = cross(r0, r1);
   const bool mirrored = dot(r0, c0) < 0.0f && !(animated && mesh->HasBones());
   const float normalSign = mirrored ? -1.0f : 1.0f;
@@ -379,8 +431,15 @@ void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, int node, LoadContext &c
 
   for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
     Vertex v;
-    const aiVector3D p = animated ? mesh->mVertices[i] : xf * mesh->mVertices[i];
-    v.pos = Vec3{p.x, p.y, p.z};
+    const aiVector3D &q = mesh->mVertices[i];
+    if (animated) {
+      v.pos = Vec3{q.x, q.y, q.z};
+    } else {
+      // Transformed and moved in double, rounded to float only once the
+      // numbers are small.
+      const Vec3d p = xf * Vec3d(q.x, q.y, q.z) - ctx.rebase;
+      v.pos = Vec3(static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z));
+    }
 
     if (mesh->HasNormals()) {
       const Vec3 n{mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z};
@@ -453,8 +512,8 @@ void addMesh(const aiMesh *mesh, const aiMatrix4x4 &xf, int node, LoadContext &c
   ++ctx.meshCount;
 }
 
-void walk(const aiNode *node, const aiMatrix4x4 &parent, LoadContext &ctx) {
-  const aiMatrix4x4 xf = parent * node->mTransformation;
+void walk(const aiNode *node, const Mat4d &parent, LoadContext &ctx) {
+  const Mat4d xf = parent * Mat4d(node->mTransformation);
   for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
     addMesh(ctx.scene->mMeshes[node->mMeshes[i]], xf, -1, ctx);
   }
@@ -466,8 +525,8 @@ void walk(const aiNode *node, const aiMatrix4x4 &parent, LoadContext &ctx) {
 void walkAnimated(const aiNode *node, LoadContext &ctx) {
   const int index = ctx.rig->nodeIndex(node);
   for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
-    addMesh(ctx.scene->mMeshes[node->mMeshes[i]], ctx.rig->restTransform(index), index,
-            ctx);
+    addMesh(ctx.scene->mMeshes[node->mMeshes[i]], Mat4d(ctx.rig->restTransform(index)),
+            index, ctx);
   }
   for (unsigned int i = 0; i < node->mNumChildren; ++i) {
     walkAnimated(node->mChildren[i], ctx);
@@ -622,7 +681,11 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
     ctx.skin.reserve(vertexGuess);
     walkAnimated(scene->mRootNode, ctx);
   } else {
-    walk(scene->mRootNode, root, ctx);
+    Vec3d lo, hi;
+    bool any = false;
+    worldBounds(scene->mRootNode, Mat4d(root), scene, lo, hi, any);
+    if (any) ctx.rebase = rebaseFor(lo, hi);
+    walk(scene->mRootNode, Mat4d(root), ctx);
   }
 
   auto fail = [&](const char *message) {
@@ -632,7 +695,21 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   };
   if (ctx.indices.empty()) return fail("the file loaded, but holds no triangles");
   if (rig.jointCount() > 65536) return fail("more than 65,536 joints; too many to animate");
-  if (animated) animatedBounds(rig, ctx);
+  if (animated) {
+    animatedBounds(rig, ctx);
+    // An animated model far from the origin moves through the rig's root
+    // instead; its vertices stay in their meshes' own spaces.
+    ctx.rebase = rebaseFor(Vec3d(ctx.lo.x, ctx.lo.y, ctx.lo.z), Vec3d(ctx.hi.x, ctx.hi.y, ctx.hi.z));
+    const Vec3 shift(static_cast<float>(ctx.rebase.x), static_cast<float>(ctx.rebase.y),
+                     static_cast<float>(ctx.rebase.z));
+    if (shift.x != 0.0f || shift.y != 0.0f || shift.z != 0.0f) {
+      rig.rebase(aiVector3D(shift.x, shift.y, shift.z));
+      // Bounds measured before the move are only as fine as the float sums
+      // far out that produced them, so they are measured again.
+      ctx.boundsSet = false;
+      animatedBounds(rig, ctx);
+    }
+  }
 
   // Everything is in hand, so the model on screen can now be replaced.
   release();
@@ -644,6 +721,8 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   ownedTextures_ = std::move(ctx.textures);
   lo_ = ctx.lo;
   hi_ = ctx.hi;
+  origin_ = Vec3(static_cast<float>(ctx.rebase.x), static_cast<float>(ctx.rebase.y),
+                 static_cast<float>(ctx.rebase.z));
   path_ = path;
 
   stats_ = ModelStats{};
@@ -852,7 +931,7 @@ void Model::release() {
   draws_.clear();
   materials_.clear();
   ownedTextures_.clear();
-  lo_ = hi_ = Vec3{0.0f, 0.0f, 0.0f};
+  lo_ = hi_ = origin_ = Vec3{0.0f, 0.0f, 0.0f};
   stats_ = ModelStats{};
   path_.clear();
 }

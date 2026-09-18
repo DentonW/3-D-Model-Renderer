@@ -42,9 +42,10 @@ GLuint compile(GLenum stage, const std::vector<const char *> &parts,
 }
 
 // `skin` pulls the posing function into the vertex shader, and `light` the
-// shared lighting function into the fragment shader.
+// shared lighting function into the fragment shader. A geometry stage is
+// optional.
 GLuint link(const char *vertexSource, const char *fragmentSource, bool skin, bool light,
-            std::string &error) {
+            std::string &error, const char *geometrySource = nullptr) {
   std::vector<const char *> vs{shaders::kHeader};
   if (skin) vs.push_back(shaders::kSkin);
   vs.push_back(vertexSource);
@@ -59,13 +60,24 @@ GLuint link(const char *vertexSource, const char *fragmentSource, bool skin, boo
     glDeleteShader(vertex);
     return 0;
   }
+  GLuint geometry = 0;
+  if (geometrySource) {
+    geometry = compile(GL_GEOMETRY_SHADER, {shaders::kHeader, geometrySource}, error);
+    if (!geometry) {
+      glDeleteShader(vertex);
+      glDeleteShader(fragment);
+      return 0;
+    }
+  }
 
   const GLuint program = glCreateProgram();
   glAttachShader(program, vertex);
   glAttachShader(program, fragment);
+  if (geometry) glAttachShader(program, geometry);
   glLinkProgram(program);
   glDeleteShader(vertex);
   glDeleteShader(fragment);
+  if (geometry) glDeleteShader(geometry);
 
   GLint ok = GL_FALSE;
   glGetProgramiv(program, GL_LINK_STATUS, &ok);
@@ -150,6 +162,12 @@ bool Renderer::buildPrograms(std::string &error) {
     error = "line shader: " + error;
     return false;
   }
+  normalsProgram_ = link(shaders::kNormalsVS, shaders::kNormalsFS, true, false, error,
+                         shaders::kNormalsGS);
+  if (!normalsProgram_) {
+    error = "normals shader: " + error;
+    return false;
+  }
   bgProgram_ = link(shaders::kBackgroundVS, shaders::kBackgroundFS, false, false, error);
   if (!bgProgram_) {
     error = "background shader: " + error;
@@ -192,6 +210,10 @@ bool Renderer::buildPrograms(std::string &error) {
   meshU_.animated = at(meshProgram_, "uAnimated");
   lineMvp_ = at(lineProgram_, "uMVP");
   lineAnimated_ = at(lineProgram_, "uAnimated");
+  normalsMvp_ = at(normalsProgram_, "uMVP");
+  normalsAnimated_ = at(normalsProgram_, "uAnimated");
+  normalsScale_ = at(normalsProgram_, "uScale");
+  normalsColor_ = at(normalsProgram_, "uColor");
   bgTop_ = at(bgProgram_, "uTop");
   bgBottom_ = at(bgProgram_, "uBottom");
 
@@ -201,6 +223,8 @@ bool Renderer::buildPrograms(std::string &error) {
   glUniform1i(at(meshProgram_, "uJoints"), 1);
   glUseProgram(lineProgram_);
   glUniform1i(at(lineProgram_, "uJoints"), 1);
+  glUseProgram(normalsProgram_);
+  glUniform1i(at(normalsProgram_, "uJoints"), 1);
   glUseProgram(0);
   return true;
 }
@@ -471,6 +495,21 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
     }
   }
 
+  if (!model.empty() && opts.showNormals) {
+    // Every triangle goes through the geometry shader, which turns it into
+    // its normal. Lines are not culled, so the back faces' normals are drawn
+    // too, and the depth test hides whichever the model stands in front of.
+    glUseProgram(normalsProgram_);
+    glUniform1i(normalsAnimated_, animated ? 1 : 0);
+    glUniformMatrix4fv(normalsMvp_, 1, GL_TRUE, mvp.m);
+    glUniform1f(normalsScale_, 1.0f);
+    glUniform3f(normalsColor_, 0.35f, 0.85f, 1.0f);
+    glBindVertexArray(model.vao());
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model.indexBuffer());
+    glLineWidth(static_cast<float>(ss));
+    glDrawElements(GL_TRIANGLES, model.indexCount(), GL_UNSIGNED_INT, nullptr);
+  }
+
   if (!model.empty() && opts.showGround) {
     glUseProgram(lineProgram_);
     glUniform1i(lineAnimated_, 0);  // the gnomon stays where it was put
@@ -536,7 +575,8 @@ void Renderer::shutdown() {
   if (groundProgram_) glDeleteProgram(groundProgram_);
   if (lineProgram_) glDeleteProgram(lineProgram_);
   if (bgProgram_) glDeleteProgram(bgProgram_);
-  meshProgram_ = groundProgram_ = lineProgram_ = bgProgram_ = 0;
+  if (normalsProgram_) glDeleteProgram(normalsProgram_);
+  meshProgram_ = groundProgram_ = lineProgram_ = bgProgram_ = normalsProgram_ = 0;
 
   if (groundVao_) glDeleteVertexArrays(1, &groundVao_);
   if (axisVao_) glDeleteVertexArrays(1, &axisVao_);

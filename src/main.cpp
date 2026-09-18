@@ -258,6 +258,9 @@ void onKey(GLFWwindow *window, int key, int, int action, int mods) {
     case GLFW_KEY_S:
       o.flatShading = !o.flatShading;
       break;
+    case GLFW_KEY_N:
+      o.showNormals = !o.showNormals;
+      break;
     case GLFW_KEY_G:
       o.showGrid = !o.showGrid;
       break;
@@ -484,7 +487,8 @@ int main(int argc, char **argv) {
   std::printf(
       "\nleft-drag orbit | right-drag pan | wheel zoom | double-click frame\n"
       "F frame   W wireframe (over surface / alone / off)   S flat shading\n"
-      "G grid   B ground   T textures   V vertex colours   C back-face culling\n"
+      "N normals   G grid   B ground   T textures   V vertex colours\n"
+      "C back-face culling\n"
       "Space play/pause   [ ] previous/next animation\n"
       "P screenshot   R reload   Esc quit\n");
   std::fflush(stdout);

@@ -62,6 +62,7 @@ avoids glad's and gl3w's Python-at-configure-time requirement.
 | `F` | frame the model |
 | `W` | wireframe: over the surface, then alone, then off |
 | `S` | flat shading |
+| `N` | face normals: a line out of each triangle, as long as the triangle is large |
 | `G` | grid |
 | `B` | ground plane and axis gnomon |
 | `T` | textures |
@@ -89,6 +90,7 @@ model-renderer [options] [model-file]
   --flat             start with flat shading
   --wire             start with the wireframe over the surface
   --wire-only        start with the wireframe alone
+  --normals          start with the face normals shown
   --no-ground        hide the ground plane and axis gnomon
   --no-grid          keep the ground, drop the grid lines
   --grid-size LEN    grid cell size: 10cm, 1m, 1ft and so on (default 10cm)
@@ -151,7 +153,8 @@ formats use. A skinned mesh is taken to be unmirrored in its rest pose.
 
 ## How it draws
 
-Four programs, all in `src/shaders.h`, carried over from the Python:
+Four programs, all in `src/shaders.h`, carried over from the Python, and a
+fifth for normals:
 
 - **background** — a vertical gradient on one oversized triangle.
 - **ground** — a single upward-facing quad at the bottom of the model's
@@ -167,6 +170,13 @@ Four programs, all in `src/shaders.h`, carried over from the Python:
   models its vertex shader also does the skinning.
 - **line** — the wireframe (dark over the surface, light on its own) and the
   axis gnomon.
+- **normals** — a geometry shader turns each triangle into a line from its
+  centre along its face normal. The line is as long as the side of a square
+  of the triangle's area. It works from the triangle as posed, so it follows
+  animation, and takes the normal from the winding, as culling does. That
+  makes a triangle wound the wrong way easy to find. With culling on it
+  leaves a hole, with its normal visible through it pointing into the model;
+  with culling off it is the one face without a line.
 
 Everything is drawn into an offscreen buffer at 2x the window resolution with
 a 24-bit depth buffer and blitted down, which antialiases the silhouettes and

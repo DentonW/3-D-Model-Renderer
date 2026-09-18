@@ -44,6 +44,7 @@ class Renderer {
   int supersample_ = 1;  // what the last frame actually used, after clamping
 
   GLuint meshProgram_ = 0, groundProgram_ = 0, lineProgram_ = 0, bgProgram_ = 0;
+  GLuint normalsProgram_ = 0;
 
   struct MeshUniforms {
     GLint mvp = -1, flat = -1, hasTex = -1, twoSided = -1, tex = -1;
@@ -59,6 +60,7 @@ class Renderer {
   } groundU_;
 
   GLint lineMvp_ = -1, lineAnimated_ = -1;
+  GLint normalsMvp_ = -1, normalsAnimated_ = -1, normalsScale_ = -1, normalsColor_ = -1;
   GLint bgTop_ = -1, bgBottom_ = -1;
 
   GLuint groundVao_ = 0, groundVbo_ = 0;

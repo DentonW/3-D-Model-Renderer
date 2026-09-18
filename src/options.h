@@ -21,6 +21,7 @@ enum class WireMode {
 struct RenderOptions {
   bool flatShading = false;
   WireMode wireframe = WireMode::Off;
+  bool showNormals = false;  // a line out of every triangle, as long as it is large
   bool showGround = true;
   Vec3 backgroundTop{0.16f, 0.17f, 0.20f};
   Vec3 backgroundBottom{0.07f, 0.07f, 0.09f};

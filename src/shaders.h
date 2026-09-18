@@ -182,6 +182,55 @@ out vec4 FragColor;
 void main() { FragColor = vec4(vCol, 1.0); }
 )GLSL";
 
+// Face normals, drawn as one line per triangle. The geometry shader builds
+// each line from the triangle as posed, so they follow an animated model
+// with no work on the CPU.
+inline constexpr const char *kNormalsVS = R"GLSL(
+layout(location = 0) in vec3 aPos;
+out vec3 gPos;
+void main() {
+    vec3 pos = aPos, nrm = vec3(0.0);
+    pose(pos, nrm);
+    gPos = pos;
+    gl_Position = vec4(pos, 1.0);  // projected by the geometry shader
+}
+)GLSL";
+
+inline constexpr const char *kNormalsGS = R"GLSL(
+layout(triangles) in;
+layout(line_strip, max_vertices = 2) out;
+in vec3 gPos[];
+uniform mat4 uMVP;
+uniform float uScale;
+void main() {
+    // The normal comes from the winding, as culling sees it, so a triangle
+    // wound the wrong way shows up pointing into the model. The edges are
+    // normalised before the cross product so that it cannot underflow on a
+    // model a millionth of a unit across.
+    vec3 e1 = gPos[1] - gPos[0], e2 = gPos[2] - gPos[0];
+    float l1 = length(e1), l2 = length(e2);
+    if (l1 <= 0.0 || l2 <= 0.0) return;
+    vec3 x = cross(e1 / l1, e2 / l2);  // length: the sine of the corner angle
+    float s = length(x);
+    if (s <= 1e-6) return;             // a sliver with no area
+    float area = 0.5 * l1 * l2 * s;
+    vec3 centre = (gPos[0] + gPos[1] + gPos[2]) / 3.0;
+    // As long as the triangle is large: the side of a square of equal area.
+    vec3 tip = centre + (x / s) * sqrt(area) * uScale;
+    gl_Position = uMVP * vec4(centre, 1.0);
+    EmitVertex();
+    gl_Position = uMVP * vec4(tip, 1.0);
+    EmitVertex();
+    EndPrimitive();
+}
+)GLSL";
+
+inline constexpr const char *kNormalsFS = R"GLSL(
+uniform vec3 uColor;
+out vec4 FragColor;
+void main() { FragColor = vec4(uColor, 1.0); }
+)GLSL";
+
 inline constexpr const char *kBackgroundVS = R"GLSL(
 layout(location = 0) in vec2 aPos;
 out float vY;

@@ -97,6 +97,7 @@ void printUsage() {
       "  --flat             start with flat shading\n"
       "  --wire             start with the wireframe over the surface\n"
       "  --wire-only        start with the wireframe alone\n"
+      "  --normals          start with the face normals shown\n"
       "  --no-ground        hide the ground plane and axis gnomon\n"
       "  --no-grid          keep the ground, drop the grid lines\n"
       "  --grid-size LEN    grid cell size: 10cm, 1m, 1ft and so on (default 10cm)\n"
@@ -120,7 +121,8 @@ void printUsage() {
       "controls:\n"
       "  left-drag orbit | right-drag pan | wheel zoom | double-click frame\n"
       "  F frame   W wireframe (over surface / alone / off)   S flat shading\n"
-      "  G grid   B ground   T textures   V vertex colours   C back-face culling\n"
+      "  N normals   G grid   B ground   T textures   V vertex colours\n"
+      "  C back-face culling\n"
       "  Space play/pause   [ ] previous/next animation\n"
       "  P screenshot   R reload   Esc quit\n");
 }
@@ -148,6 +150,8 @@ bool parseArgs(int argc, char **argv, Options &out, std::string &error,
       out.render.wireframe = WireMode::Overlay;
     } else if (std::strcmp(a, "--wire-only") == 0) {
       out.render.wireframe = WireMode::Only;
+    } else if (std::strcmp(a, "--normals") == 0) {
+      out.render.showNormals = true;
     } else if (std::strcmp(a, "--yaw") == 0) {
       const char *v = needValue(i);
       if (!v) return false;

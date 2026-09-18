@@ -6,13 +6,21 @@
 // single-purpose rock viewer did not.
 #pragma once
 
+#include <optional>
 #include <string>
 
 #include "math3d.h"
 
+// W steps through these in order.
+enum class WireMode {
+  Off,
+  Overlay,  // dark edges over the shaded surface, as in the rock generator
+  Only,     // light edges and no surface
+};
+
 struct RenderOptions {
   bool flatShading = false;
-  bool wireframe = false;
+  WireMode wireframe = WireMode::Off;
   bool showGround = true;
   Vec3 backgroundTop{0.16f, 0.17f, 0.20f};
   Vec3 backgroundBottom{0.07f, 0.07f, 0.09f};
@@ -34,6 +42,7 @@ struct RenderOptions {
   float exposure = 1.0f;
 
   int supersample = 2;         // offscreen scale; 2 means 2x2 samples per pixel
+  float gridWidth = 1.0f;      // grid line width in window pixels
   bool cullBackfaces = true;   // off rescues models with inconsistent winding
   bool useTextures = true;
   bool useVertexColors = true; // off shows the material colour underneath
@@ -53,6 +62,10 @@ struct Options {
 
   bool zUp = false;             // rotate a Z-up model into this Y-up world
   std::string screenshot;       // render one frame to this PNG, then exit
+
+  // Starting view in degrees, when given; the camera's own defaults otherwise.
+  std::optional<float> yaw;
+  std::optional<float> pitch;
 };
 
 // Returns false on a bad argument (message in `error`) or on --help, in which

@@ -69,10 +69,15 @@ void printUsage() {
       "  --size WxH         window size (default 1280x800)\n"
       "  --ss N             supersampling factor, 1-4 (default 2)\n"
       "  --fov DEG          vertical field of view (default 38)\n"
+      "  --yaw DEG          starting view: angle around the model (default 34)\n"
+      "  --pitch DEG        starting view: angle above the ground, -83 to 83\n"
+      "                     (default 20)\n"
       "  --flat             start with flat shading\n"
-      "  --wire             start with the wireframe overlay on\n"
+      "  --wire             start with the wireframe over the surface\n"
+      "  --wire-only        start with the wireframe alone\n"
       "  --no-ground        hide the ground plane and axis gnomon\n"
       "  --no-grid          keep the ground, drop the grid lines\n"
+      "  --grid-width PX    grid line width in window pixels (default 1)\n"
       "  --no-cull          draw back faces too, for inconsistent winding\n"
       "  --no-textures      shade with material colours only\n"
       "  --albedo R,G,B     colour for models with no colour of their own\n"
@@ -86,8 +91,8 @@ void printUsage() {
       "\n"
       "controls:\n"
       "  left-drag orbit | right-drag pan | wheel zoom | double-click frame\n"
-      "  F frame   W wireframe   S flat shading   G grid   B ground\n"
-      "  T textures   V vertex colours   C back-face culling\n"
+      "  F frame   W wireframe (over surface / alone / off)   S flat shading\n"
+      "  G grid   B ground   T textures   V vertex colours   C back-face culling\n"
       "  P screenshot   R reload   Esc quit\n");
 }
 
@@ -111,7 +116,35 @@ bool parseArgs(int argc, char **argv, Options &out, std::string &error,
     } else if (std::strcmp(a, "--flat") == 0) {
       out.render.flatShading = true;
     } else if (std::strcmp(a, "--wire") == 0) {
-      out.render.wireframe = true;
+      out.render.wireframe = WireMode::Overlay;
+    } else if (std::strcmp(a, "--wire-only") == 0) {
+      out.render.wireframe = WireMode::Only;
+    } else if (std::strcmp(a, "--yaw") == 0) {
+      const char *v = needValue(i);
+      if (!v) return false;
+      float yaw = 0.0f;
+      if (!parseFloat(v, yaw)) {
+        error = std::string("--yaw wants degrees, got ") + v;
+        return false;
+      }
+      out.yaw = yaw;
+    } else if (std::strcmp(a, "--pitch") == 0) {
+      const char *v = needValue(i);
+      if (!v) return false;
+      float pitch = 0.0f;
+      if (!parseFloat(v, pitch) || pitch < -83.0f || pitch > 83.0f) {
+        error = std::string("--pitch wants degrees in [-83, 83], got ") + v;
+        return false;
+      }
+      out.pitch = pitch;
+    } else if (std::strcmp(a, "--grid-width") == 0) {
+      const char *v = needValue(i);
+      if (!v) return false;
+      if (!parseFloat(v, out.render.gridWidth) || out.render.gridWidth <= 0.0f ||
+          out.render.gridWidth > 8.0f) {
+        error = std::string("--grid-width wants pixels in (0, 8], got ") + v;
+        return false;
+      }
     } else if (std::strcmp(a, "--no-ground") == 0) {
       out.render.showGround = false;
     } else if (std::strcmp(a, "--no-grid") == 0) {

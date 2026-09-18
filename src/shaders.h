@@ -96,6 +96,7 @@ in vec3 vPos;
 uniform vec3 uGround, uHorizon, uGridCol, uLight;
 uniform vec2 uCentre;
 uniform float uSpan, uCell, uGridStrength;
+uniform float uGridWidth;  // in framebuffer pixels
 uniform bool uGrid;
 out vec4 FragColor;
 void main() {
@@ -103,12 +104,13 @@ void main() {
     float shadow = pow(clamp(1.0 - d / max(uSpan * 0.62, 1e-6), 0.0, 1.0), 1.6);
     vec3 col = uGround * uLight * (1.0 - 0.72 * shadow);
     if (uGrid) {
-        // fwidth gives the exact on-screen footprint, so the lines stay one
-        // pixel wide however oblique the view is.
-        vec2 g = abs(fract(vPos.xz / uCell + 0.5) - 0.5) * uCell;
-        vec2 w = fwidth(vPos.xz) * 1.1 + 1e-9;
-        float line = 1.0 - min(min(g.x / w.x, g.y / w.y), 1.0);
-        col += uGridCol * (line * line * uGridStrength);
+        // Distance to the nearest line in pixels. fwidth gives the exact
+        // on-screen footprint, so the lines keep their width however oblique
+        // the view is, and the one-pixel ramp at the edge antialiases them.
+        vec2 fw = fwidth(vPos.xz) + 1e-9;
+        vec2 px = abs(fract(vPos.xz / uCell + 0.5) - 0.5) * uCell / fw;
+        float line = clamp(0.5 * uGridWidth + 0.5 - min(px.x, px.y), 0.0, 1.0);
+        col += uGridCol * (line * uGridStrength);
     }
     float f = clamp(1.0 - d / max(uSpan * 14.0, 1e-6), 0.0, 1.0);
     f = f * f * (3.0 - 2.0 * f);

@@ -183,6 +183,7 @@ bool Renderer::buildPrograms(std::string &error) {
   groundU_.span = at(groundProgram_, "uSpan");
   groundU_.cell = at(groundProgram_, "uCell");
   groundU_.gridStrength = at(groundProgram_, "uGridStrength");
+  groundU_.gridWidth = at(groundProgram_, "uGridWidth");
   groundU_.grid = at(groundProgram_, "uGrid");
 
   lineMvp_ = at(lineProgram_, "uMVP");
@@ -203,9 +204,12 @@ void Renderer::onModelChanged(const Model &model) {
   if (!(span > 0.0f)) span = 1.0f;
   const float cx = (lo.x + hi.x) * 0.5f, cz = (lo.z + hi.z) * 0.5f;
   const float e = span * 60.0f;
+  // Wound counter-clockwise seen from above, so it faces up: with back faces
+  // culled, the plane disappears once the camera drops below it and the
+  // model's underside comes into view.
   const float quad[18] = {
-      cx - e, groundY, cz - e, cx + e, groundY, cz - e, cx + e, groundY, cz + e,
-      cx - e, groundY, cz - e, cx + e, groundY, cz + e, cx - e, groundY, cz + e,
+      cx - e, groundY, cz - e, cx - e, groundY, cz + e, cx + e, groundY, cz + e,
+      cx - e, groundY, cz - e, cx + e, groundY, cz + e, cx + e, groundY, cz - e,
   };
   glBindBuffer(GL_ARRAY_BUFFER, groundVbo_);
   glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_DYNAMIC_DRAW);
@@ -334,22 +338,22 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
     glUniform1f(groundU_.span, span);
     glUniform1f(groundU_.cell, niceStep(std::max(span, 1e-3f) * 0.5f));
     glUniform1f(groundU_.gridStrength, opts.gridStrength);
+    glUniform1f(groundU_.gridWidth, opts.gridWidth * static_cast<float>(ss));
     glUniform1i(groundU_.grid, opts.showGrid ? 1 : 0);
 
-    // The plane is a flat quad seen from either side. It is pushed back a
-    // hair in depth because the gnomon's x and z axes lie exactly in it: at
-    // equal depth, which of the two wins each pixel comes down to rounding,
-    // and the lines break up into dashes.
-    glDisable(GL_CULL_FACE);
+    // Culled like any other surface, which is what hides it from below. It
+    // is also pushed back a hair in depth because the gnomon's x and z axes
+    // lie exactly in it: at equal depth, which of the two wins each pixel
+    // comes down to rounding, and the lines break up into dashes.
+    glEnable(GL_CULL_FACE);
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(1.0f, 1.0f);
     glBindVertexArray(groundVao_);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glDisable(GL_POLYGON_OFFSET_FILL);
-    glEnable(GL_CULL_FACE);
   }
 
-  if (!model.empty()) {
+  if (!model.empty() && opts.wireframe != WireMode::Only) {
     glUseProgram(meshProgram_);
     glUniformMatrix4fv(meshU_.mvp, 1, GL_TRUE, mvp.m);
     glUniform1i(meshU_.flat, opts.flatShading ? 1 : 0);
@@ -367,14 +371,14 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
 
     glBindVertexArray(model.vao());
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model.indexBuffer());
-    if (opts.wireframe) {
+    if (opts.wireframe == WireMode::Overlay) {
       // Push the fill back so the lines sit on top cleanly.
       glEnable(GL_POLYGON_OFFSET_FILL);
       glPolygonOffset(1.0f, 1.0f);
     }
 
     glActiveTexture(GL_TEXTURE0);
-    bool culling = true;  // matches the state set at the end of the ground pass
+    bool culling = true;  // matches the state the ground pass leaves
     for (const DrawRange &draw : model.draws()) {
       const Material *material =
           draw.material >= 0 ? &model.materials()[draw.material] : nullptr;
@@ -405,32 +409,38 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     if (!culling) glEnable(GL_CULL_FACE);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+  }
 
-    if (opts.wireframe) {
-      glDisable(GL_POLYGON_OFFSET_FILL);
-      model.ensureEdges();
-      if (model.edgeIndexCount() > 0) {
-        glUseProgram(lineProgram_);
-        glUniformMatrix4fv(lineMvp_, 1, GL_TRUE, mvp.m);
-        // The line shader wants a colour in slot 1, where the mesh layout
-        // keeps its normals; a constant attribute covers it without a second
-        // vertex array.
-        glDisableVertexAttribArray(1);
-        glVertexAttrib3f(1, 0.08f, 0.09f, 0.11f);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model.edgeBuffer());
-        glLineWidth(1.0f);
-        glDrawElements(GL_LINES, model.edgeIndexCount(), GL_UNSIGNED_INT, nullptr);
-        glEnableVertexAttribArray(1);
-      }
-    }
-
-    if (opts.showGround) {
+  if (!model.empty() && opts.wireframe != WireMode::Off) {
+    model.ensureEdges();
+    if (model.edgeIndexCount() > 0) {
+      // Over the surface the lines are dark and half a pixel wide, as the
+      // rock generator drew them. Alone they are all there is to see, so they
+      // are light and a full window pixel wide.
+      const bool alone = opts.wireframe == WireMode::Only;
+      const Vec3 color = alone ? Vec3{0.80f, 0.82f, 0.86f} : Vec3{0.08f, 0.09f, 0.11f};
       glUseProgram(lineProgram_);
       glUniformMatrix4fv(lineMvp_, 1, GL_TRUE, mvp.m);
-      glBindVertexArray(axisVao_);
-      glLineWidth(static_cast<float>(std::max(1, ss)));
-      glDrawArrays(GL_LINES, 0, 6);
+      glBindVertexArray(model.vao());
+      // The line shader wants a colour in slot 1, where the mesh layout keeps
+      // its normals; a constant attribute covers it without a second vertex
+      // array.
+      glDisableVertexAttribArray(1);
+      glVertexAttrib3f(1, color.x, color.y, color.z);
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model.edgeBuffer());
+      glLineWidth(alone ? static_cast<float>(ss) : 1.0f);
+      glDrawElements(GL_LINES, model.edgeIndexCount(), GL_UNSIGNED_INT, nullptr);
+      glEnableVertexAttribArray(1);
     }
+  }
+
+  if (!model.empty() && opts.showGround) {
+    glUseProgram(lineProgram_);
+    glUniformMatrix4fv(lineMvp_, 1, GL_TRUE, mvp.m);
+    glBindVertexArray(axisVao_);
+    glLineWidth(static_cast<float>(std::max(1, ss)));
+    glDrawArrays(GL_LINES, 0, 6);
   }
 
   glBindVertexArray(0);

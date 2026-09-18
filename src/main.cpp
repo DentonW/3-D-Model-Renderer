@@ -152,7 +152,10 @@ void onKey(GLFWwindow *window, int key, int, int action, int mods) {
       if (!a.model.empty()) a.camera.frame(a.model.boundsMin(), a.model.boundsMax());
       break;
     case GLFW_KEY_W:
-      o.wireframe = !o.wireframe;
+      // Off, then over the surface, then alone, then off again.
+      o.wireframe = o.wireframe == WireMode::Off       ? WireMode::Overlay
+                    : o.wireframe == WireMode::Overlay ? WireMode::Only
+                                                       : WireMode::Off;
       break;
     case GLFW_KEY_S:
       o.flatShading = !o.flatShading;
@@ -334,6 +337,12 @@ int main(int argc, char **argv) {
   std::printf("%s\n", a.renderer.glInfo().c_str());
   std::fflush(stdout);  // keep it ahead of any load error on stderr
 
+  // Framing a model moves the target and distance but leaves the angles, so
+  // a starting view set here holds for the first model and any dropped later.
+  constexpr float kRadians = 3.14159265358979323846f / 180.0f;
+  if (a.opts.yaw) a.camera.yaw = *a.opts.yaw * kRadians;
+  if (a.opts.pitch) a.camera.pitch = *a.opts.pitch * kRadians;
+
   bool loaded = false;
   if (!a.opts.modelPath.empty()) {
     loaded = loadModel(a, a.opts.modelPath);
@@ -364,8 +373,8 @@ int main(int argc, char **argv) {
 
   std::printf(
       "\nleft-drag orbit | right-drag pan | wheel zoom | double-click frame\n"
-      "F frame   W wireframe   S flat shading   G grid   B ground\n"
-      "T textures   V vertex colours   C back-face culling\n"
+      "F frame   W wireframe (over surface / alone / off)   S flat shading\n"
+      "G grid   B ground   T textures   V vertex colours   C back-face culling\n"
       "P screenshot   R reload   Esc quit\n");
   std::fflush(stdout);
 

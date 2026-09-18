@@ -15,7 +15,9 @@ model-renderer sponza.gltf
 
 The shaders and camera are line-for-line ports. With the same rock exported
 from Rock-Generator as glb, obj, fbx or ply, a frame from this program matches
-the Python viewport's to within a few pixels along the axis lines.
+the Python viewport's to within a few pixels along the axis lines. The one
+deliberate difference is the grid, drawn a little heavier here
+(`--grid-width`).
 
 ## Building
 
@@ -56,7 +58,7 @@ avoids glad's and gl3w's Python-at-configure-time requirement.
 | wheel | zoom |
 | double-click | frame the model |
 | `F` | frame the model |
-| `W` | wireframe overlay |
+| `W` | wireframe: over the surface, then alone, then off |
 | `S` | flat shading |
 | `G` | grid |
 | `B` | ground plane and axis gnomon |
@@ -78,10 +80,14 @@ model-renderer [options] [model-file]
   --size WxH         window size (default 1280x800)
   --ss N             supersampling factor, 1-4 (default 2)
   --fov DEG          vertical field of view (default 38)
+  --yaw DEG          starting view: angle around the model (default 34)
+  --pitch DEG        starting view: angle above the ground, -83 to 83 (default 20)
   --flat             start with flat shading
-  --wire             start with the wireframe overlay on
+  --wire             start with the wireframe over the surface
+  --wire-only        start with the wireframe alone
   --no-ground        hide the ground plane and axis gnomon
   --no-grid          keep the ground, drop the grid lines
+  --grid-width PX    grid line width in window pixels (default 1)
   --no-cull          draw back faces too, for inconsistent winding
   --no-textures      shade with material colours only
   --albedo R,G,B     colour for models with no colour of their own
@@ -96,6 +102,7 @@ and for checking a model from a script:
 
 ```bash
 model-renderer --size 1600x1200 --ss 3 --screenshot rock.png rock.obj
+model-renderer --yaw 90 --pitch -30 --screenshot underside.png rock.obj
 ```
 
 ## How it draws
@@ -103,14 +110,16 @@ model-renderer --size 1600x1200 --ss 3 --screenshot rock.png rock.obj
 Four programs, all in `src/shaders.h`, carried over from the Python:
 
 - **background** — a vertical gradient on one oversized triangle.
-- **ground** — a single quad at the bottom of the model's bounding box, shaded
-  analytically: a radial contact shadow under the model, grid lines whose
-  width comes from `fwidth` so they stay one pixel wide at any angle, and a
-  fade to the horizon colour.
+- **ground** — a single upward-facing quad at the bottom of the model's
+  bounding box, shaded analytically: a radial contact shadow under the model,
+  grid lines held at a constant width in window pixels (via `fwidth`) at any
+  angle, and a fade to the horizon colour. It is back-face culled, so it
+  disappears when the camera goes below it.
 - **mesh** — key light, fill light, hemisphere ambient (sky above, bounce
   below) and a rim term. Flat shading takes the face normal from
   `dFdx`/`dFdy`, so it needs no second copy of the geometry.
-- **line** — the wireframe overlay and the axis gnomon.
+- **line** — the wireframe (dark over the surface, light on its own) and the
+  axis gnomon.
 
 Everything is drawn into an offscreen buffer at 2x the window resolution with
 a 24-bit depth buffer and blitted down, which antialiases the silhouettes and

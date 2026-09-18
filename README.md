@@ -188,9 +188,16 @@ it costs a sort over every triangle corner.
   exporters write when they can't translate the real shader (Maya's Arnold
   materials come out of its OBJ exporter that way). Vertex-colour layers that
   are solid black or solid white are placeholders and are ignored.
-- **Colour space.** glTF stores vertex and material colours as linear values;
-  they are converted to sRGB on load, since that is the space the shading
-  works in. Texels are used as authored (image files are already sRGB).
+- **Maya materials.** Maya's Standard Surface and Arnold materials, the
+  default in current Maya, keep their colour in Maya's own FBX properties.
+  Assimp passes these through untranslated, and the standard colour fields
+  beside them are empty. That colour (`Maya|baseColor`, scaled by the base
+  weight) is read directly and takes priority. Maya's OBJ exporter can't
+  carry it at all and writes black, so export such models as FBX.
+- **Colour space.** glTF, and Maya's material colours, store colour as linear
+  values; they are converted to sRGB on load, since that is the space the
+  shading works in. Texels are used as authored (image files are already
+  sRGB).
 - **Normals.** Whatever the file provides is kept. Meshes that arrive without
   normals get smooth ones, with `--crease` as the limit: edges sharper than
   that stay sharp. The Python split hard edges itself at the same point in the

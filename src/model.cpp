@@ -158,6 +158,38 @@ bool isAnimated(const aiScene *scene) {
   return false;
 }
 
+// The material's diffuse or base-colour map, loaded once however many
+// materials share it. 0 when it has none, or it could not be found.
+GLuint materialTexture(const aiMaterial *src, LoadContext &ctx,
+                       std::unordered_map<std::string, GLuint> &cache) {
+  aiString texPath;
+  if (src->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) != AI_SUCCESS &&
+      src->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) != AI_SUCCESS) {
+    return 0;
+  }
+  const std::string key(texPath.C_Str());
+  if (key.empty()) return 0;
+
+  const auto hit = cache.find(key);
+  if (hit != cache.end()) return hit->second;
+
+  GLuint tex = 0;
+  if (const aiTexture *embedded = ctx.scene->GetEmbeddedTexture(texPath.C_Str())) {
+    tex = textureFromEmbedded(embedded);
+  } else {
+    const std::string resolved = resolveTexturePath(key, ctx.dir);
+    if (!resolved.empty()) tex = textureFromFile(resolved);
+  }
+
+  if (tex == 0) {
+    std::fprintf(stderr, "  texture not loaded: %s\n", key.c_str());
+  } else {
+    ctx.textures.push_back(tex);
+  }
+  cache[key] = tex;
+  return tex;
+}
+
 void readMaterials(LoadContext &ctx) {
   std::unordered_map<std::string, GLuint> cache;
   ctx.materials.resize(ctx.scene->mNumMaterials);
@@ -187,7 +219,22 @@ void readMaterials(LoadContext &ctx) {
     const bool black = color.r == 0.0f && color.g == 0.0f && color.b == 0.0f;
     const bool standIn = std::strcmp(name.C_Str(), AI_DEFAULT_MATERIAL_NAME) == 0 ||
                          (name.length == 0 && white);
-    if (found && !standIn && !black) {
+
+    // Maya's Standard Surface and Arnold materials -- the default material in
+    // current Maya -- keep their colour in Maya's own FBX properties, which
+    // assimp passes through untranslated as "$raw." ones, while the standard
+    // slots beside them are left empty or at a default. The shader's colour
+    // is the one the artist chose, so it takes over: scaled by the shader's
+    // base weight, and converted from the linear space Maya works in.
+    aiColor3D mayaColor;
+    const bool maya = src->Get("$raw.Maya|baseColor", 0, 0, mayaColor) == AI_SUCCESS;
+    if (maya) {
+      float weight = 1.0f;
+      src->Get("$raw.Maya|base", 0, 0, weight);
+      dst.color = fileColor(mayaColor.r * weight, mayaColor.g * weight,
+                            mayaColor.b * weight, true);
+      dst.hasColor = true;
+    } else if (found && !standIn && !black) {
       dst.color = fileColor(color.r, color.g, color.b, ctx.linearColors);
       dst.hasColor = true;
     }
@@ -197,37 +244,10 @@ void readMaterials(LoadContext &ctx) {
       dst.twoSided = twoSided != 0;
     }
 
-    if (!ctx.opts->render.useTextures) continue;
-
-    aiString texPath;
-    if (src->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) != AI_SUCCESS &&
-        src->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) != AI_SUCCESS) {
-      continue;
-    }
-    const std::string key(texPath.C_Str());
-    if (key.empty()) continue;
-
-    const auto hit = cache.find(key);
-    if (hit != cache.end()) {
-      dst.texture = hit->second;
-      continue;
-    }
-
-    GLuint tex = 0;
-    if (const aiTexture *embedded = ctx.scene->GetEmbeddedTexture(texPath.C_Str())) {
-      tex = textureFromEmbedded(embedded);
-    } else {
-      const std::string resolved = resolveTexturePath(key, ctx.dir);
-      if (!resolved.empty()) tex = textureFromFile(resolved);
-    }
-
-    if (tex == 0) {
-      std::fprintf(stderr, "  texture not loaded: %s\n", key.c_str());
-    } else {
-      ctx.textures.push_back(tex);
-    }
-    cache[key] = tex;
-    dst.texture = tex;
+    if (ctx.opts->render.useTextures) dst.texture = materialTexture(src, ctx, cache);
+    // A map wired into a Standard Surface's base colour replaces the colour
+    // value, which is left holding whatever it was set to before.
+    if (maya && dst.texture) dst.hasColor = false;
   }
 }
 

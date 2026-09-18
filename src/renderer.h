@@ -55,7 +55,8 @@ class Renderer {
 
   struct GroundUniforms {
     GLint mvp = -1, ground = -1, horizon = -1, gridCol = -1, light = -1;
-    GLint centre = -1, span = -1, cell = -1, gridStrength = -1, gridWidth = -1;
+    GLint centre = -1, span = -1, cell = -1, minorStrength = -1, majorStrength = -1;
+    GLint gridWidth = -1;
     GLint grid = -1;
   } groundU_;
 

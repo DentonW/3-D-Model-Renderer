@@ -18,8 +18,9 @@ The shaders and camera are line-for-line ports. With the same rock exported
 from Rock-Generator as glb, obj, fbx or ply, a frame from this program matches
 the Python viewport's to within a few pixels along the axis lines. The one
 deliberate difference is the grid: here its cells are a fixed real size,
-10 cm by default, so the grid shows how big the model actually is. Its lines
-are also a little heavier (`--grid-size`, `--grid-width`).
+10 cm by default with a stronger line every metre, so the grid shows how
+big the model actually is. Its lines are also a little heavier
+(`--grid-size`, `--grid-width`).
 
 ## Building
 
@@ -93,7 +94,8 @@ model-renderer [options] [model-file]
   --normals          start with the face normals shown
   --no-ground        hide the ground plane and axis gnomon
   --no-grid          keep the ground, drop the grid lines
-  --grid-size LEN    grid cell size: 10cm, 1m, 1ft and so on (default 10cm)
+  --grid-size LEN    grid cell size: 10cm, 1m, 1ft and so on (default 10cm);
+                     every tenth line is drawn stronger
   --grid-width PX    grid line width in window pixels (default 1)
   --units U          what one unit in the file is: m, cm, mm, km, in, ft;
                      by default read from the file where it says
@@ -159,9 +161,10 @@ fifth for normals:
 - **background** — a vertical gradient on one oversized triangle.
 - **ground** — a single upward-facing quad at the bottom of the model's
   bounding box, shaded analytically: a radial contact shadow under the model,
-  a grid of fixed-size cells with lines held at a constant width in window
-  pixels (via `fwidth`) at any angle, and a fade to the horizon colour. Where
-  the cells shrink to a few pixels (under a very large model, or toward the
+  a grid of fixed-size cells, in two weights (every tenth line stronger),
+  with lines held at a constant width in window pixels (via `fwidth`) at any
+  angle, and a fade to the horizon colour. Where each set of cells shrinks
+  to a few pixels (under a very large model, or toward the
   horizon) the lines fade out rather than turning to moiré. The quad is
   back-face culled, so it disappears when the camera goes below it.
 - **mesh** — key light, fill light, hemisphere ambient (sky above, bounce
@@ -226,7 +229,8 @@ it costs a sort over every triangle corner.
 - **Orientation.** Y-up is assumed. `--z-up` rotates a Z-up file (much CAD,
   some Blender exports) into place.
 - **Units and scale.** The grid is a ruler: its cells are a fixed real size
-  (`--grid-size`, 10 cm by default), so a model's size reads straight off it.
+  (`--grid-size`, 10 cm by default), with every tenth line drawn stronger,
+  so a model's size reads straight off it.
   That needs the file's units, which are taken from the file where it gives
   them: glTF is metres by definition, and FBX records its unit (usually
   centimetres). Collada is converted to metres by assimp and Blender works in
@@ -239,10 +243,12 @@ it costs a sort over every triangle corner.
   bounding sphere, and the clipping planes, zoom range, ground, shadow and
   axis lengths follow its size. The same model at a billionth of the size or
   a billion times it is framed identically. What changes is the grid behind
-  it. With 10 cm cells, framing a model more than a few metres across makes
-  the cells too small to draw, and they fade out until you zoom in; a model
-  much under a centimetre sits inside a single cell. `--grid-size` suits the
-  grid to either: `--grid-size 1m` for buildings and vehicles, say.
+  it. With the defaults, framing a model more than a few metres across makes
+  the 10 cm cells too small to draw, and they fade out until you zoom in.
+  The 1 m lines carry on until the model is a few tens of metres across, and
+  a model much under a centimetre sits inside a single cell. `--grid-size`
+  suits the grid to either end: `--grid-size 1m` gives 1 m and 10 m lines for
+  buildings and vehicles, say.
 - **Far from the origin.** CAD, survey and scan data are often placed
   thousands of kilometres out, where a single-precision float can't tell
   apart points closer than half a unit. Node transforms are composed in

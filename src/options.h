@@ -44,8 +44,9 @@ struct RenderOptions {
 
   int supersample = 2;         // offscreen scale; 2 means 2x2 samples per pixel
   float gridWidth = 1.0f;      // grid line width in window pixels
-  // Grid cell size in metres. Fixed, rather than fitted to the model, so the
-  // grid works as a ruler: it shows how big the model really is.
+  // Grid cell size in metres, with every tenth line stronger. Fixed, rather
+  // than fitted to the model, so the grid works as a ruler: it shows how big
+  // the model really is.
   double gridSize = 0.1;
   bool cullBackfaces = true;   // off rescues models with inconsistent winding
   bool useTextures = true;

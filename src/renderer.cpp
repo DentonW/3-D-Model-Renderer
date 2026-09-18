@@ -203,7 +203,8 @@ bool Renderer::buildPrograms(std::string &error) {
   groundU_.centre = at(groundProgram_, "uCentre");
   groundU_.span = at(groundProgram_, "uSpan");
   groundU_.cell = at(groundProgram_, "uCell");
-  groundU_.gridStrength = at(groundProgram_, "uGridStrength");
+  groundU_.minorStrength = at(groundProgram_, "uMinorStrength");
+  groundU_.majorStrength = at(groundProgram_, "uMajorStrength");
   groundU_.gridWidth = at(groundProgram_, "uGridWidth");
   groundU_.grid = at(groundProgram_, "uGrid");
 
@@ -386,7 +387,10 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
     // A fixed size in metres, turned into the file's units: the grid is a
     // ruler, so the model's real size shows against it.
     glUniform1f(groundU_.cell, static_cast<float>(opts.gridSize / model.unitMetres()));
-    glUniform1f(groundU_.gridStrength, opts.gridStrength);
+    // Every tenth line is stronger: 1 m lines over the 10 cm ones, by
+    // default. The two strengths straddle the Python grid's single one.
+    glUniform1f(groundU_.minorStrength, opts.gridStrength * 0.6f);
+    glUniform1f(groundU_.majorStrength, opts.gridStrength * 1.6f);
     glUniform1f(groundU_.gridWidth, opts.gridWidth * static_cast<float>(ss));
     glUniform1i(groundU_.grid, opts.showGrid ? 1 : 0);
 

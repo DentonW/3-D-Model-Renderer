@@ -134,27 +134,39 @@ inline constexpr const char *kGroundFS = R"GLSL(
 in vec3 vPos;
 uniform vec3 uGround, uHorizon, uGridCol, uLight;
 uniform vec2 uCentre;
-uniform float uSpan, uCell, uGridStrength;
+uniform float uSpan, uCell;
+uniform float uMinorStrength, uMajorStrength;  // every line; every tenth
 uniform float uGridWidth;  // in framebuffer pixels
 uniform bool uGrid;
 out vec4 FragColor;
+
+// Coverage of one set of grid lines, `cell` apart, at this fragment.
+float gridLines(vec2 fw, float cell) {
+    // Distance to the nearest line in pixels. fwidth gives the exact
+    // on-screen footprint, so the lines keep their width however oblique the
+    // view is, and the one-pixel ramp at the edge antialiases them.
+    vec2 px = abs(fract(vPos.xz / cell + 0.5) - 0.5) * cell / fw;
+    // The cells are a fixed size, so under a large model or toward the
+    // horizon they shrink to a few pixels, where the lines would merge into
+    // moire and haze. Each set fades out as its lines crowd.
+    vec2 crowding = uGridWidth * fw / cell;  // line width over spacing
+    vec2 keep = 1.0 - smoothstep(vec2(0.1), vec2(0.35), crowding);
+    vec2 lines = clamp(0.5 * uGridWidth + 0.5 - px, 0.0, 1.0) * keep;
+    return max(lines.x, lines.y);
+}
+
 void main() {
     float d = length(vPos.xz - uCentre);
     float shadow = pow(clamp(1.0 - d / max(uSpan * 0.62, 1e-30), 0.0, 1.0), 1.6);
     vec3 col = uGround * uLight * (1.0 - 0.72 * shadow);
     if (uGrid) {
-        // Distance to the nearest line in pixels. fwidth gives the exact
-        // on-screen footprint, so the lines keep their width however oblique
-        // the view is, and the one-pixel ramp at the edge antialiases them.
+        // Two sets: the cells, and stronger lines every ten of them -- 10 cm
+        // and 1 m by default. Pulling back, the fine set fades out first and
+        // the coarse one carries on. Where they coincide the stronger wins.
         vec2 fw = max(fwidth(vPos.xz), vec2(1e-30));
-        vec2 px = abs(fract(vPos.xz / uCell + 0.5) - 0.5) * uCell / fw;
-        // The cells are a fixed size, so under a large model or toward the
-        // horizon they shrink to a few pixels, where the lines would merge
-        // into moire and haze. Each set fades out as its lines crowd.
-        vec2 crowding = uGridWidth * fw / uCell;  // line width over spacing
-        vec2 keep = 1.0 - smoothstep(vec2(0.1), vec2(0.35), crowding);
-        vec2 lines = clamp(0.5 * uGridWidth + 0.5 - px, 0.0, 1.0) * keep;
-        col += uGridCol * (max(lines.x, lines.y) * uGridStrength);
+        float line = max(gridLines(fw, uCell) * uMinorStrength,
+                         gridLines(fw, uCell * 10.0) * uMajorStrength);
+        col += uGridCol * line;
     }
     float f = clamp(1.0 - d / max(uSpan * 14.0, 1e-30), 0.0, 1.0);
     f = f * f * (3.0 - 2.0 * f);

@@ -27,14 +27,16 @@ Those, and the grid, are the deliberate differences:
 ## Building
 
 CMake and a C++17 compiler, nothing else. [CPM](https://github.com/cpm-cmake/CPM.cmake)
-(vendored in `cmake/`) fetches and builds the three dependencies as part of
-the configure step:
+(vendored in `cmake/`) fetches and builds three of the dependencies as part
+of the configure step. The fourth, the OpenGL loader, is generated code
+checked in under `third_party/`:
 
 | | |
 |---|---|
 | [glfw](https://github.com/glfw/glfw) 3.4 | window, GL context, input |
 | [assimp](https://github.com/assimp/assimp) 6.0.5 | model import |
 | [stb](https://github.com/nothings/stb) | texture decoding, PNG screenshots |
+| [glad](https://github.com/Dav1dde/glad) 2.0.8 | OpenGL 3.3 core loader, in `third_party/glad` |
 
 ```bash
 cmake -S . -B build
@@ -50,9 +52,9 @@ clones between build trees:
 cmake -S . -B build -DCPM_SOURCE_CACHE=~/.cache/cpm
 ```
 
-There is no GL loader dependency. `src/gl33.h` declares the sixty-odd entry
-points this program uses and resolves them through `glfwGetProcAddress`, which
-avoids glad's and gl3w's Python-at-configure-time requirement.
+glad is a code generator, and its output for OpenGL 3.3 core is checked in,
+as glad recommends, so a build needs no Python.
+`third_party/glad/README.md` has the one command that regenerates it.
 
 ## Controls
 

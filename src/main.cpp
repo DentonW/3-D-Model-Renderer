@@ -5,6 +5,7 @@
 // toggle the display options. Frames are drawn on demand rather than in a
 // spin loop, so a still viewport costs nothing; only a playing animation
 // keeps the loop turning.
+#include <glad/gl.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
@@ -13,7 +14,6 @@
 #include <string>
 
 #include "camera.h"
-#include "gl33.h"
 #include "model.h"
 #include "options.h"
 #include "platform.h"
@@ -455,10 +455,12 @@ int main(int argc, char **argv) {
   glfwMakeContextCurrent(a.window);
   glfwSwapInterval(1);
 
-  if (const char *missing = gl33_load(reinterpret_cast<void *(*)(const char *)>(
-          glfwGetProcAddress))) {
-    std::fprintf(stderr, "this GL context has no %s; OpenGL 3.3 is required\n",
-                 missing);
+  // glad resolves every GL 3.3 entry point through GLFW, and returns the
+  // context's version, or 0 if it could not load them.
+  const int glVersion = gladLoadGL(glfwGetProcAddress);
+  if (glVersion == 0 || GLAD_VERSION_MAJOR(glVersion) * 10 + GLAD_VERSION_MINOR(glVersion) < 33) {
+    std::fprintf(stderr, "could not load OpenGL 3.3 from this context (it reports %d.%d)\n",
+                 GLAD_VERSION_MAJOR(glVersion), GLAD_VERSION_MINOR(glVersion));
     glfwTerminate();
     return 1;
   }

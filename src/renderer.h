@@ -8,11 +8,12 @@
 // cannot be asked for after the fact.
 #pragma once
 
+#include <glad/gl.h>
+
 #include <string>
 #include <vector>
 
 #include "camera.h"
-#include "gl33.h"
 #include "model.h"
 #include "options.h"
 

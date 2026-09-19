@@ -15,8 +15,9 @@
 #include <string>
 #include <vector>
 
+#include <glad/gl.h>
+
 #include "animation.h"
-#include "gl33.h"
 #include "math3d.h"
 #include "options.h"
 

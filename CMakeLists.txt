@@ -61,6 +61,12 @@ CPMAddPackage(
 add_library(stb INTERFACE)
 target_include_directories(stb SYSTEM INTERFACE "${stb_SOURCE_DIR}")
 
+# glad is a generator rather than a library: the loader it wrote for
+# OpenGL 3.3 core is checked in, the way its authors recommend, so building
+# needs no Python. third_party/glad/README.md has the command to regenerate it.
+add_library(glad STATIC third_party/glad/src/gl.c)
+target_include_directories(glad SYSTEM PUBLIC third_party/glad/include)
+
 # ------------------------------------------------------------------ target
 
 add_executable(model-renderer
@@ -71,14 +77,13 @@ add_executable(model-renderer
   src/camera.cpp
   src/options.cpp
   src/platform.cpp
-  src/gl33.c
   src/stb_impl.c
 )
 
-target_link_libraries(model-renderer PRIVATE glfw assimp stb)
+target_link_libraries(model-renderer PRIVATE glfw assimp stb glad)
 
-# GL entry points are resolved at run time through glfwGetProcAddress, so
-# there is no GL library to link and no loader dependency to install.
+# glad resolves the GL entry points at run time, through glfwGetProcAddress,
+# so there is no GL library to link.
 if(UNIX AND NOT APPLE)
   target_link_libraries(model-renderer PRIVATE ${CMAKE_DL_LIBS})
 endif()

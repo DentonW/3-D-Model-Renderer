@@ -16,6 +16,7 @@
 #include "gl33.h"
 #include "model.h"
 #include "options.h"
+#include "platform.h"
 #include "renderer.h"
 #include "stb_image_write.h"
 
@@ -408,6 +409,10 @@ void onGlfwError(int code, const char *description) {
 }  // namespace
 
 int main(int argc, char **argv) {
+  // Paths are UTF-8 throughout: GLFW hands dropped files over that way,
+  // assimp expects it, and on Windows the manifest makes the command line
+  // and the C library's file functions do the same.
+  Utf8Console console;
   App a;
   std::string error;
   bool showedHelp = false;

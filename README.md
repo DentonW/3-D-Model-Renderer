@@ -238,6 +238,13 @@ it costs a sort over every triangle corner.
   space as the vertex colours, rather than being converted to linear — that is
   what keeps this renderer's output matching the Python's. Materials with an
   alpha channel are cut out at 0.5, so foliage and fences keep their shape.
+- **File names.** Any Unicode file or folder name works, from the command
+  line, by drag and drop, and for the textures a model refers to. Paths are
+  UTF-8 throughout, as assimp and GLFW expect. On Windows that relies on the
+  application manifest (`src/model-renderer.manifest`), which makes UTF-8 the
+  program's code page. It needs Windows 10 version 1903 or later and an
+  MSVC build; without it, names outside the system's legacy code page can't
+  be opened.
 - **Orientation.** Y-up is assumed. `--z-up` rotates a Z-up file (much CAD,
   some Blender exports) into place. For a model that still arrives lying the
   wrong way, `--roll` turns it about its front-to-back (Z) axis and `--pitch`

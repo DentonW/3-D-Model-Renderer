@@ -70,6 +70,7 @@ add_executable(model-renderer
   src/animation.cpp
   src/camera.cpp
   src/options.cpp
+  src/platform.cpp
   src/gl33.c
   src/stb_impl.c
 )
@@ -83,6 +84,9 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(MSVC)
+  # UTF-8 as the process code page, so file names outside the legacy code
+  # page open (see the manifest). The linker merges it into its own manifest.
+  target_sources(model-renderer PRIVATE src/model-renderer.manifest)
   target_compile_options(model-renderer PRIVATE /W4 /utf-8 /permissive-)
   # fopen and friends are used as the standard specifies them; MSVC's
   # preferred replacements are not portable.

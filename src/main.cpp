@@ -126,10 +126,25 @@ std::string realSize(Vec3 size, double unitMetres) {
   return buf;
 }
 
-void describe(const Model &model) {
+void describe(const Model &model, const Options &opts) {
   const ModelStats &s = model.stats();
   const Vec3 lo = model.boundsMin(), hi = model.boundsMax();
   std::printf("%s\n", baseNameOf(model.path()).c_str());
+  if (opts.zUp || opts.modelRoll != 0.0 || opts.modelPitch != 0.0) {
+    std::string turns;
+    char buf[64];
+    if (opts.zUp) turns += "Z-up converted, ";
+    if (opts.modelRoll != 0.0) {
+      std::snprintf(buf, sizeof(buf), "rolled %g deg, ", opts.modelRoll);
+      turns += buf;
+    }
+    if (opts.modelPitch != 0.0) {
+      std::snprintf(buf, sizeof(buf), "pitched %g deg, ", opts.modelPitch);
+      turns += buf;
+    }
+    turns.resize(turns.size() - 2);
+    std::printf("  orientation: %s, then set on the ground\n", turns.c_str());
+  }
   std::printf("  %s triangles / %s vertices / %s meshes / %s materials / %s textures\n",
               withCommas(s.triangles).c_str(), withCommas(s.vertices).c_str(),
               withCommas(s.meshes).c_str(), withCommas(s.materials).c_str(),
@@ -165,7 +180,7 @@ bool loadModel(App &a, const std::string &path) {
     std::fprintf(stderr, "could not load %s\n  %s\n", path.c_str(), error.c_str());
     return false;
   }
-  describe(a.model);
+  describe(a.model, a.opts);
 
   // Start on the requested clip, or the first if there are fewer than that.
   const int clips = static_cast<int>(a.model.clips().size());
@@ -453,8 +468,8 @@ int main(int argc, char **argv) {
   // Framing a model moves the target and distance but leaves the angles, so
   // a starting view set here holds for the first model and any dropped later.
   constexpr float kRadians = 3.14159265358979323846f / 180.0f;
-  if (a.opts.yaw) a.camera.yaw = *a.opts.yaw * kRadians;
-  if (a.opts.pitch) a.camera.pitch = *a.opts.pitch * kRadians;
+  if (a.opts.viewYaw) a.camera.yaw = *a.opts.viewYaw * kRadians;
+  if (a.opts.viewPitch) a.camera.pitch = *a.opts.viewPitch * kRadians;
 
   bool loaded = false;
   if (!a.opts.modelPath.empty()) {

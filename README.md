@@ -86,8 +86,8 @@ model-renderer [options] [model-file]
   --size WxH         window size (default 1280x800)
   --ss N             supersampling factor, 1-4 (default 2)
   --fov DEG          vertical field of view (default 38)
-  --yaw DEG          starting view: angle around the model (default 34)
-  --pitch DEG        starting view: angle above the ground, -83 to 83 (default 20)
+  --view-yaw DEG     starting view: angle around the model (default 34)
+  --view-pitch DEG   starting view: angle above the ground, -83 to 83 (default 20)
   --flat             start with flat shading
   --wire             start with the wireframe over the surface
   --wire-only        start with the wireframe alone
@@ -105,6 +105,10 @@ model-renderer [options] [model-file]
   --exposure X       overall brightness multiplier
   --crease DEG       smoothing limit for meshes that arrive without normals
   --z-up             rotate a Z-up model into this Y-up world
+  --roll DEG         turn the model about its front-to-back (Z) axis
+  --pitch DEG        turn the model about its side-to-side (X) axis;
+                     both come after --z-up, roll first, and the model
+                     is set back on the ground afterwards
   --anim N           animated models: start on clip N, counting from 1;
                      0 shows the rest pose (default 1)
   --time SEC         animated models: start SEC seconds into the clip
@@ -116,7 +120,7 @@ animation frames and checking a model from a script:
 
 ```bash
 model-renderer --size 1600x1200 --ss 3 --screenshot rock.png rock.obj
-model-renderer --yaw 90 --pitch -30 --screenshot underside.png rock.obj
+model-renderer --view-yaw 90 --view-pitch -30 --screenshot underside.png rock.obj
 model-renderer --anim 2 --time 0.5 --screenshot stride.png character.glb
 ```
 
@@ -227,7 +231,17 @@ it costs a sort over every triangle corner.
   what keeps this renderer's output matching the Python's. Materials with an
   alpha channel are cut out at 0.5, so foliage and fences keep their shape.
 - **Orientation.** Y-up is assumed. `--z-up` rotates a Z-up file (much CAD,
-  some Blender exports) into place.
+  some Blender exports) into place. For a model that still arrives lying the
+  wrong way, `--roll` turns it about its front-to-back (Z) axis and `--pitch`
+  about its side-to-side (X) axis, applied after `--z-up`, roll first. The
+  signs follow the right-hand rule, so `--pitch -90` is the same turn as
+  `--z-up`, and multiples of 90° are exact. The turn is applied before the
+  model is measured, so the ground, the framing and the reported size all
+  follow it; for an animated model the ground sits under the lowest point
+  it reaches anywhere in its clips. The settings apply to every model loaded
+  in the session, dropped ones included. They are separate from
+  `--view-yaw` and `--view-pitch`, which move the camera rather than the
+  model.
 - **Units and scale.** The grid is a ruler: its cells are a fixed real size
   (`--grid-size`, 10 cm by default), with every tenth line drawn stronger,
   so a model's size reads straight off it.

@@ -156,6 +156,41 @@ struct LoadContext {
 using Mat4d = aiMatrix4x4t<double>;
 using Vec3d = aiVector3t<double>;
 
+// Sine and cosine of an angle in degrees, exact at multiples of 90, so a
+// quarter turn leaves an axis-aligned model exactly axis-aligned.
+void sinCosDegrees(double degrees, double &s, double &c) {
+  const double quarters = degrees / 90.0;
+  if (quarters == std::round(quarters)) {
+    static const double sines[] = {0.0, 1.0, 0.0, -1.0};
+    const int q = (static_cast<int>(std::fmod(quarters, 4.0)) % 4 + 4) % 4;
+    s = sines[q];
+    c = sines[(q + 1) % 4];
+    return;
+  }
+  const double radians = degrees * 3.14159265358979323846 / 180.0;
+  s = std::sin(radians);
+  c = std::cos(radians);
+}
+
+// How the file's coordinates turn into this Y-up world: a Z-up file is
+// converted first, then the model is rolled about Z and pitched about X as
+// asked, right-handed. It all sits above the scene's root, so positions,
+// normals, animation and bounds -- and with them the ground -- follow it.
+Mat4d orientation(const Options &opts) {
+  Mat4d m;
+  if (opts.zUp) m = Mat4d(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1);
+  double s = 0.0, c = 1.0;
+  if (opts.modelRoll != 0.0) {
+    sinCosDegrees(opts.modelRoll, s, c);
+    m = Mat4d(c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) * m;
+  }
+  if (opts.modelPitch != 0.0) {
+    sinCosDegrees(opts.modelPitch, s, c);
+    m = Mat4d(1, 0, 0, 0, 0, c, -s, 0, 0, s, c, 0, 0, 0, 0, 1) * m;
+  }
+  return m;
+}
+
 // How long one of the file's units is, in metres, with a note of how that was
 // decided. Only some formats say: FBX records its unit (as centimetres per
 // unit), glTF is metres by definition, and assimp converts Collada to metres
@@ -712,13 +747,10 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   ctx.verts.reserve(vertexGuess);
   ctx.indices.reserve(indexGuess);
 
-  // A Z-up model is corrected by a rotation at the root, so it flows through
-  // the same transform path as everything else -- positions, normals and
-  // bounds included.
-  aiMatrix4x4 root;
-  if (opts.zUp) {
-    root = aiMatrix4x4(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1);
-  }
+  // Orientation fixes -- Z-up, roll, pitch -- go in as one rotation above the
+  // root, in double for static scenes and in float for the rig.
+  const Mat4d rootD = orientation(opts);
+  const aiMatrix4x4 root = rootD;
 
   Rig rig;
   if (animated) {
@@ -729,9 +761,9 @@ bool Model::load(const std::string &path, const Options &opts, std::string &erro
   } else {
     Vec3d lo, hi;
     bool any = false;
-    worldBounds(scene->mRootNode, Mat4d(root), scene, lo, hi, any);
+    worldBounds(scene->mRootNode, rootD, scene, lo, hi, any);
     if (any) ctx.rebase = rebaseFor(lo, hi, cell);
-    walk(scene->mRootNode, Mat4d(root), ctx);
+    walk(scene->mRootNode, rootD, ctx);
   }
 
   auto fail = [&](const char *message) {

@@ -91,8 +91,8 @@ void printUsage() {
       "  --size WxH         window size (default 1280x800)\n"
       "  --ss N             supersampling factor, 1-4 (default 2)\n"
       "  --fov DEG          vertical field of view (default 38)\n"
-      "  --yaw DEG          starting view: angle around the model (default 34)\n"
-      "  --pitch DEG        starting view: angle above the ground, -83 to 83\n"
+      "  --view-yaw DEG     starting view: angle around the model (default 34)\n"
+      "  --view-pitch DEG   starting view: angle above the ground, -83 to 83\n"
       "                     (default 20)\n"
       "  --flat             start with flat shading\n"
       "  --wire             start with the wireframe over the surface\n"
@@ -113,6 +113,10 @@ void printUsage() {
       "  --crease DEG       smoothing limit for meshes that arrive without\n"
       "                     normals (default 60)\n"
       "  --z-up             rotate a Z-up model into this Y-up world\n"
+      "  --roll DEG         turn the model about its front-to-back (Z) axis\n"
+      "  --pitch DEG        turn the model about its side-to-side (X) axis;\n"
+      "                     both come after --z-up, roll first, and the model\n"
+      "                     is set back on the ground afterwards\n"
       "  --anim N           animated models: start on clip N, counting from 1;\n"
       "                     0 shows the rest pose (default 1)\n"
       "  --time SEC         animated models: start SEC seconds into the clip\n"
@@ -153,24 +157,34 @@ bool parseArgs(int argc, char **argv, Options &out, std::string &error,
       out.render.wireframe = WireMode::Only;
     } else if (std::strcmp(a, "--normals") == 0) {
       out.render.showNormals = true;
-    } else if (std::strcmp(a, "--yaw") == 0) {
+    } else if (std::strcmp(a, "--view-yaw") == 0) {
       const char *v = needValue(i);
       if (!v) return false;
       float yaw = 0.0f;
       if (!parseFloat(v, yaw)) {
-        error = std::string("--yaw wants degrees, got ") + v;
+        error = std::string("--view-yaw wants degrees, got ") + v;
         return false;
       }
-      out.yaw = yaw;
-    } else if (std::strcmp(a, "--pitch") == 0) {
+      out.viewYaw = yaw;
+    } else if (std::strcmp(a, "--view-pitch") == 0) {
       const char *v = needValue(i);
       if (!v) return false;
       float pitch = 0.0f;
       if (!parseFloat(v, pitch) || pitch < -83.0f || pitch > 83.0f) {
-        error = std::string("--pitch wants degrees in [-83, 83], got ") + v;
+        error = std::string("--view-pitch wants degrees in [-83, 83], got ") + v;
         return false;
       }
-      out.pitch = pitch;
+      out.viewPitch = pitch;
+    } else if (std::strcmp(a, "--roll") == 0 || std::strcmp(a, "--pitch") == 0) {
+      double &target = std::strcmp(a, "--roll") == 0 ? out.modelRoll : out.modelPitch;
+      const char *v = needValue(i);
+      if (!v) return false;
+      float degrees = 0.0f;
+      if (!parseFloat(v, degrees)) {
+        error = std::string(a) + " wants degrees, got " + v;
+        return false;
+      }
+      target = degrees;
     } else if (std::strcmp(a, "--grid-size") == 0) {
       const char *v = needValue(i);
       if (!v) return false;

@@ -66,15 +66,22 @@ struct Options {
   float creaseAngle = 60.0f;
 
   bool zUp = false;             // rotate a Z-up model into this Y-up world
+
+  // Turns for a model that arrives lying the wrong way, in degrees: roll
+  // about its front-to-back (Z) axis, then pitch about its side-to-side (X)
+  // axis, both after --z-up. The bounds, and so the ground, follow.
+  double modelRoll = 0.0;
+  double modelPitch = 0.0;
   std::string screenshot;       // render one frame to this PNG, then exit
 
   // How long one of the file's units is, in metres. 0 means work it out from
   // the file, where it says, or from its format's convention.
   double unitMetres = 0.0;
 
-  // Starting view in degrees, when given; the camera's own defaults otherwise.
-  std::optional<float> yaw;
-  std::optional<float> pitch;
+  // The camera's starting angles in degrees, when given; its own defaults
+  // otherwise. These move the view, not the model.
+  std::optional<float> viewYaw;
+  std::optional<float> viewPitch;
 
   // For animated models: the clip to start on, counting from 1 (0 for the
   // rest pose), and how far into it, in seconds.

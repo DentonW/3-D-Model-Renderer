@@ -190,8 +190,9 @@ void main() {
 
 inline constexpr const char *kLineFS = R"GLSL(
 in vec3 vCol;
+uniform float uBrightness;  // below 1 for the faint, hidden parts of the axes
 out vec4 FragColor;
-void main() { FragColor = vec4(vCol, 1.0); }
+void main() { FragColor = vec4(vCol * uBrightness, 1.0); }
 )GLSL";
 
 // Face normals, drawn as one line per triangle. The geometry shader builds

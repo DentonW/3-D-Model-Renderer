@@ -58,6 +58,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_CULL_FACE 0x0B44
 #define GL_BACK 0x0405
 #define GL_LEQUAL 0x0203
+#define GL_GREATER 0x0204
 #define GL_POLYGON_OFFSET_FILL 0x8037
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_BUFFER_BIT 0x00000100
@@ -125,6 +126,7 @@ typedef void(GL33_APIENTRY *PFN_glClear)(GLbitfield);
 typedef void(GL33_APIENTRY *PFN_glClearColor)(GLfloat, GLfloat, GLfloat, GLfloat);
 typedef void(GL33_APIENTRY *PFN_glViewport)(GLint, GLint, GLsizei, GLsizei);
 typedef void(GL33_APIENTRY *PFN_glDepthFunc)(GLenum);
+typedef void(GL33_APIENTRY *PFN_glDepthMask)(GLboolean);
 typedef void(GL33_APIENTRY *PFN_glCullFace)(GLenum);
 typedef void(GL33_APIENTRY *PFN_glPolygonOffset)(GLfloat, GLfloat);
 typedef void(GL33_APIENTRY *PFN_glLineWidth)(GLfloat);
@@ -205,7 +207,8 @@ typedef void(GL33_APIENTRY *PFN_glRenderbufferStorage)(GLenum, GLenum, GLsizei, 
  * typedef above and one line here. */
 #define GL33_FUNCTIONS(X)                                                            \
   X(glGetString) X(glGetIntegerv) X(glGetError) X(glEnable) X(glDisable) X(glClear)  \
-  X(glClearColor) X(glViewport) X(glDepthFunc) X(glCullFace) X(glPolygonOffset)      \
+  X(glClearColor) X(glViewport) X(glDepthFunc) X(glDepthMask) X(glCullFace)          \
+  X(glPolygonOffset)                                                                 \
   X(glLineWidth) X(glPixelStorei) X(glReadPixels) X(glDrawArrays) X(glDrawElements)  \
   X(glGenTextures) X(glDeleteTextures) X(glBindTexture) X(glTexImage2D)              \
   X(glTexParameteri) X(glActiveTexture) X(glGenerateMipmap) X(glGenBuffers)          \
@@ -240,6 +243,7 @@ const char *gl33_load(void *(*getproc)(const char *));
 #define glClearColor gl33_glClearColor
 #define glViewport gl33_glViewport
 #define glDepthFunc gl33_glDepthFunc
+#define glDepthMask gl33_glDepthMask
 #define glCullFace gl33_glCullFace
 #define glPolygonOffset gl33_glPolygonOffset
 #define glLineWidth gl33_glLineWidth

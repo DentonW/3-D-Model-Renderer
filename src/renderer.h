@@ -21,7 +21,7 @@ class Renderer {
   bool init(std::string &error);
   void shutdown();
 
-  // Rebuilds the ground quad and the axis gnomon around a new model.
+  // Rebuilds the ground quad and the origin's axes for a new model.
   void onModelChanged(const Model &model);
 
   // Draws one frame into the offscreen buffer and resolves it to the window.
@@ -60,7 +60,7 @@ class Renderer {
     GLint grid = -1;
   } groundU_;
 
-  GLint lineMvp_ = -1, lineAnimated_ = -1;
+  GLint lineMvp_ = -1, lineAnimated_ = -1, lineBrightness_ = -1;
   GLint normalsMvp_ = -1, normalsAnimated_ = -1, normalsScale_ = -1, normalsColor_ = -1;
   GLint bgTop_ = -1, bgBottom_ = -1;
 

@@ -211,6 +211,7 @@ bool Renderer::buildPrograms(std::string &error) {
   meshU_.animated = at(meshProgram_, "uAnimated");
   lineMvp_ = at(lineProgram_, "uMVP");
   lineAnimated_ = at(lineProgram_, "uAnimated");
+  lineBrightness_ = at(lineProgram_, "uBrightness");
   normalsMvp_ = at(normalsProgram_, "uMVP");
   normalsAnimated_ = at(normalsProgram_, "uAnimated");
   normalsScale_ = at(normalsProgram_, "uScale");
@@ -252,16 +253,29 @@ void Renderer::onModelChanged(const Model &model) {
   glBindBuffer(GL_ARRAY_BUFFER, groundVbo_);
   glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_DYNAMIC_DRAW);
 
-  float s = maxComponent(hi - lo);
-  s = (s > 0.0f ? s : 1.0f) * 0.55f;
-  const float ox = lo.x, oy = groundY, oz = hi.z;
+  // The axes stand at the file's own origin, wherever that is -- at a
+  // character's feet, in the middle of a rock, off to one side -- and point
+  // along +x, +y and +z. Each runs out past the model's box in its direction
+  // and then on by a quarter of the model's extent that way (a tenth of its
+  // largest, at least), so it always comes out of the model, and never
+  // shrinks to nothing on a flat one.
+  const Vec3 o = -model.origin();  // the file's origin, in drawn coordinates
+  const Vec3 size = hi - lo;
+  float largest = maxComponent(size);
+  if (!(largest > 0.0f)) largest = 1.0f;
+  auto reach = [largest](float toFarSide, float extent) {
+    return std::max(toFarSide, 0.0f) + std::max(0.25f * extent, 0.1f * largest);
+  };
+  const float lx = reach(hi.x - o.x, size.x);
+  const float ly = reach(hi.y - o.y, size.y);
+  const float lz = reach(hi.z - o.z, size.z);
   const float axis[36] = {
-      ox,     oy, oz,     0.86f, 0.32f, 0.32f,  // x
-      ox + s, oy, oz,     0.86f, 0.32f, 0.32f,
-      ox,     oy, oz,     0.40f, 0.82f, 0.40f,  // y
-      ox, oy + s, oz,     0.40f, 0.82f, 0.40f,
-      ox,     oy, oz,     0.36f, 0.55f, 0.92f,  // z
-      ox,     oy, oz - s, 0.36f, 0.55f, 0.92f,
+      o.x,      o.y,      o.z,      0.86f, 0.32f, 0.32f,  // x
+      o.x + lx, o.y,      o.z,      0.86f, 0.32f, 0.32f,
+      o.x,      o.y,      o.z,      0.40f, 0.82f, 0.40f,  // y
+      o.x,      o.y + ly, o.z,      0.40f, 0.82f, 0.40f,
+      o.x,      o.y,      o.z,      0.36f, 0.55f, 0.92f,  // z
+      o.x,      o.y,      o.z + lz, 0.36f, 0.55f, 0.92f,
   };
   glBindBuffer(GL_ARRAY_BUFFER, axisVbo_);
   glBufferData(GL_ARRAY_BUFFER, sizeof(axis), axis, GL_DYNAMIC_DRAW);
@@ -485,6 +499,7 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
       const Vec3 color = alone ? Vec3{0.80f, 0.82f, 0.86f} : Vec3{0.08f, 0.09f, 0.11f};
       glUseProgram(lineProgram_);
       glUniform1i(lineAnimated_, animated ? 1 : 0);
+      glUniform1f(lineBrightness_, 1.0f);
       glUniformMatrix4fv(lineMvp_, 1, GL_TRUE, mvp.m);
       glBindVertexArray(model.vao());
       // The line shader wants a colour in slot 1, where the mesh layout keeps
@@ -516,10 +531,21 @@ void Renderer::draw(Model &model, const Camera &camera, const RenderOptions &opt
 
   if (!model.empty() && opts.showGround) {
     glUseProgram(lineProgram_);
-    glUniform1i(lineAnimated_, 0);  // the gnomon stays where it was put
+    glUniform1i(lineAnimated_, 0);  // the axes stay where they were put
     glUniformMatrix4fv(lineMvp_, 1, GL_TRUE, mvp.m);
     glBindVertexArray(axisVao_);
     glLineWidth(static_cast<float>(std::max(1, ss)));
+    // First, faintly, whatever of them is hidden -- inside the model, or
+    // under the ground when the model sits above its origin -- so the origin
+    // can always be found. Depth writes are off so the full-strength pass
+    // after it is not blocked by the faint one.
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_GREATER);
+    glUniform1f(lineBrightness_, 0.4f);
+    glDrawArrays(GL_LINES, 0, 6);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    glUniform1f(lineBrightness_, 1.0f);
     glDrawArrays(GL_LINES, 0, 6);
   }
 

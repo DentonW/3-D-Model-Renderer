@@ -98,7 +98,7 @@ void printUsage() {
       "  --wire             start with the wireframe over the surface\n"
       "  --wire-only        start with the wireframe alone\n"
       "  --normals          start with the face normals shown\n"
-      "  --no-ground        hide the ground plane and axis gnomon\n"
+      "  --no-ground        hide the ground plane and the axes at the origin\n"
       "  --no-grid          keep the ground, drop the grid lines\n"
       "  --grid-size LEN    grid cell size: 10cm, 1m, 1ft and so on (default 10cm);\n"
       "                     every tenth line is drawn stronger\n"

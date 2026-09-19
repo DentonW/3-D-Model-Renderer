@@ -429,8 +429,9 @@ int main(int argc, char **argv) {
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 #ifdef __APPLE__
   // macOS only hands out a 3.3+ context this way. Elsewhere it is left off:
-  // a forward-compatible context drops wide lines, and the axis gnomon is
-  // drawn as wide as the supersampling factor, as it was in the Python.
+  // a forward-compatible context drops wide lines, and the axes (and the
+  // lone wireframe and normals) are drawn as wide as the supersampling
+  // factor, as the Python drew its axes.
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 #endif
   glfwWindowHint(GLFW_SAMPLES, 0);  // the offscreen buffer does the antialiasing

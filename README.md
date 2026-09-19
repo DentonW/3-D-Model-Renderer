@@ -15,12 +15,14 @@ model-renderer sponza.gltf
 ![A cliff-chunk rock from Rock-Generator, drawn by model-renderer](docs/rock.png)
 
 The shaders and camera are line-for-line ports. With the same rock exported
-from Rock-Generator as glb, obj, fbx or ply, a frame from this program matches
-the Python viewport's to within a few pixels along the axis lines. The one
-deliberate difference is the grid: here its cells are a fixed real size,
-10 cm by default with a stronger line every metre, so the grid shows how
-big the model actually is. Its lines are also a little heavier
-(`--grid-size`, `--grid-width`).
+from Rock-Generator as glb, obj, fbx or ply, and the grid turned off, a frame
+from this program matches the Python viewport's everywhere except the axes.
+Those, and the grid, are the deliberate differences:
+- **Axes:** the RGB axes stand at the file's origin rather than at a corner
+  of the model.
+- **Grid:** its cells are a fixed real size, 10 cm by default with a stronger
+  line every metre, so it shows how big the model actually is. Its lines are
+  also a little heavier (`--grid-size`, `--grid-width`).
 
 ## Building
 
@@ -65,7 +67,7 @@ avoids glad's and gl3w's Python-at-configure-time requirement.
 | `S` | flat shading |
 | `N` | face normals: a line out of each triangle, as long as the triangle is large |
 | `G` | grid |
-| `B` | ground plane and axis gnomon |
+| `B` | ground plane and the axes at the origin |
 | `T` | textures |
 | `V` | vertex colours (off shows the material colour) |
 | `C` | back-face culling |
@@ -92,7 +94,7 @@ model-renderer [options] [model-file]
   --wire             start with the wireframe over the surface
   --wire-only        start with the wireframe alone
   --normals          start with the face normals shown
-  --no-ground        hide the ground plane and axis gnomon
+  --no-ground        hide the ground plane and the axes at the origin
   --no-grid          keep the ground, drop the grid lines
   --grid-size LEN    grid cell size: 10cm, 1m, 1ft and so on (default 10cm);
                      every tenth line is drawn stronger
@@ -176,7 +178,13 @@ fifth for normals:
   `dFdx`/`dFdy`, so it needs no second copy of the geometry. For animated
   models its vertex shader also does the skinning.
 - **line** — the wireframe (dark over the surface, light on its own) and the
-  axis gnomon.
+  RGB axes. The axes stand at the file's own origin, wherever that is, and
+  point along +x, +y and +z. Each runs past the model's bounding box in its
+  direction, plus a quarter of the model's extent that way, so it always
+  comes out of the model. Any part hidden inside the model, or under the
+  ground when the model sits above its origin, is drawn faintly, so the
+  origin can always be found. (With `--z-up`, `--roll` or `--pitch` they
+  show the turned world's axes, not the file's.)
 - **normals** — a geometry shader turns each triangle into a line from its
   centre along its face normal. The line is as long as the side of a square
   of the triangle's area. It works from the triangle as posed, so it follows
